@@ -76,7 +76,7 @@ function renderStocks(stocks) {
     .map(
       (s) => `
     <tr>
-      <td><span class="ticker-badge">${s.ticker}</span></td>
+      <td><span class="ticker-badge">${s.name}</span></td>
       <td>${fmt(s.shares, 4)}</td>
       <td>${fmtUsd(s.avg_purchase_price)}</td>
       <td>${fmtUsd(s.current_price)}</td>

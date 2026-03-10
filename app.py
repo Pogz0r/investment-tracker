@@ -119,7 +119,7 @@ def get_portfolio():
         pct = ((cp - s["avg_purchase_price"]) / s["avg_purchase_price"] * 100) if s["avg_purchase_price"] else 0
         stocks_out.append({
             "ticker": s["ticker"],
-            "name": s["ticker"],
+            "name": s["ticker"].replace(".TO", ""),
             "shares": s["shares"],
             "avg_purchase_price": s["avg_purchase_price"],
             "current_price": cp,
@@ -204,17 +204,24 @@ def add_stock():
     if not ticker or shares <= 0 or avg_price <= 0:
         return jsonify({"error": "Ticker, shares > 0, and purchase price > 0 are required"}), 400
 
-    # validate ticker via yfinance
-    try:
-        price = yf.Ticker(ticker).fast_info.last_price
-        if not price:
-            raise ValueError("no price")
-    except Exception:
-        return jsonify({"error": f"Could not find ticker '{ticker}'. Check the symbol and try again."}), 400
+    # validate ticker via yfinance; auto-retry with .TO suffix for TSX stocks
+    def _valid_ticker(t):
+        try:
+            price = yf.Ticker(t).fast_info.last_price
+            return bool(price)
+        except Exception:
+            return False
+
+    if not _valid_ticker(ticker):
+        tsx_ticker = ticker if ticker.endswith(".TO") else ticker + ".TO"
+        if _valid_ticker(tsx_ticker):
+            ticker = tsx_ticker
+        else:
+            return jsonify({"error": f"Could not find ticker '{ticker}'. Check the symbol and try again."}), 400
 
     portfolio = load_portfolio()
     if any(s["ticker"] == ticker for s in portfolio["stocks"]):
-        return jsonify({"error": f"{ticker} is already in your portfolio"}), 409
+        return jsonify({"error": f"{ticker.replace('.TO', '')} is already in your portfolio"}), 409
 
     portfolio["stocks"].append({"ticker": ticker, "shares": shares, "avg_purchase_price": avg_price})
     save_portfolio(portfolio)
