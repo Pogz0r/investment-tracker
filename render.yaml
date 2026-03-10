@@ -5,6 +5,12 @@ services:
     buildCommand: pip install -r requirements.txt
     startCommand: gunicorn app:app
     envVars:
+      - key: SECRET_KEY
+        generateValue: true
+      - key: GOOGLE_CLIENT_ID
+        sync: false
+      - key: GOOGLE_CLIENT_SECRET
+        sync: false
       - key: COINGECKO_API_KEY
         sync: false
       - key: DATA_DIR

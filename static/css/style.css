@@ -35,6 +35,85 @@ body {
 }
 
 /* ============================================================
+   LOGIN PAGE
+   ============================================================ */
+.login-page {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 100vh;
+  background: var(--bg);
+}
+.login-wrap {
+  width: 100%;
+  max-width: 420px;
+  padding: 24px 16px;
+}
+.login-card {
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 48px 40px 40px;
+  box-shadow: 0 4px 24px rgba(0, 0, 0, .5);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0;
+  text-align: center;
+}
+.login-brand {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 12px;
+}
+.login-brand-icon { font-size: 2.6rem; line-height: 1; }
+.login-title {
+  font-size: 1.3rem;
+  font-weight: 700;
+  color: var(--text);
+}
+.login-tagline {
+  font-size: .9rem;
+  color: var(--text-sub);
+  line-height: 1.6;
+  margin-bottom: 32px;
+}
+.google-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 12px;
+  background: #fff;
+  color: #3c4043;
+  border: 1px solid #dadce0;
+  border-radius: 4px;
+  padding: 12px 24px;
+  font-size: .95rem;
+  font-weight: 600;
+  font-family: inherit;
+  text-decoration: none;
+  cursor: pointer;
+  transition: box-shadow .15s, background .15s;
+  width: 100%;
+  justify-content: center;
+}
+.google-btn:hover {
+  background: #f8f9fa;
+  box-shadow: 0 2px 8px rgba(0,0,0,.25);
+}
+.google-icon {
+  width: 20px;
+  height: 20px;
+  flex-shrink: 0;
+}
+.login-note {
+  font-size: .78rem;
+  color: var(--text-muted);
+  margin-top: 20px;
+}
+
+/* ============================================================
    HEADER
    ============================================================ */
 .site-header {
@@ -70,6 +149,33 @@ body {
   flex-wrap: wrap;
   justify-content: flex-end;
 }
+
+/* user profile */
+.user-profile {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-shrink: 0;
+}
+.user-avatar {
+  width: 28px;
+  height: 28px;
+  border-radius: 50%;
+  object-fit: cover;
+  border: 1px solid var(--border);
+  flex-shrink: 0;
+}
+.user-name {
+  font-size: .85rem;
+  color: var(--text-sub);
+  white-space: nowrap;
+}
+.btn-sm {
+  padding: 4px 10px !important;
+  font-size: .78rem !important;
+}
+body.compact .user-name { display: none; }
+body.compact .user-avatar { width: 24px; height: 24px; }
 
 /* small pill badges */
 .rate-badge, .refresh-badge, .countdown-badge {

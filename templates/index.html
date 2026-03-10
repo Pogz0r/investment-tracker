@@ -21,6 +21,13 @@
         <span class="countdown-badge">Auto-refresh in <span id="countdown">60</span>s</span>
         <button class="compact-toggle" id="compactToggle">⊟ Compact</button>
       </div>
+      <div class="user-profile">
+        {% if current_user.picture %}
+        <img src="{{ current_user.picture }}" class="user-avatar" referrerpolicy="no-referrer" alt="{{ current_user.name }}" />
+        {% endif %}
+        <span class="user-name">{{ (current_user.name or current_user.email or 'User').split()[0] }}</span>
+        <a href="/logout" class="btn btn-outline btn-sm">Sign out</a>
+      </div>
     </div>
   </header>
 

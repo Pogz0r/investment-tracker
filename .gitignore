@@ -1,8 +1,8 @@
 # Environment variables — never commit secrets
 .env
 
-# Portfolio data (optional — remove this line if you want to commit your holdings)
-data/portfolio.json
+# Local data directory (portfolio DB lives here in dev)
+data/
 
 # Python
 __pycache__/
