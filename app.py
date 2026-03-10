@@ -36,7 +36,7 @@ login_manager.login_view = "login"
 # ── External API config ───────────────────────────────────────────────────────
 COINGECKO_API_KEY = os.environ.get("COINGECKO_API_KEY", "")
 COINGECKO_BASE_URL = "https://api.coingecko.com/api/v3"
-FRANKFURTER_BASE_URL = "https://api.frankfurter.dev"
+FRANKFURTER_BASE_URL = "https://api.frankfurter.app"
 
 # ── Google OAuth ──────────────────────────────────────────────────────────────
 oauth = OAuth(app)
