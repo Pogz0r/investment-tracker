@@ -24,9 +24,12 @@ app.secret_key = os.environ.get("SECRET_KEY", "dev-only-insecure-key-change-me")
 # ── Database ─────────────────────────────────────────────────────────────────
 _data_dir = os.environ.get("DATA_DIR", os.path.join(os.path.dirname(__file__), "data"))
 os.makedirs(_data_dir, exist_ok=True)
-app.config["SQLALCHEMY_DATABASE_URI"] = os.environ.get(
-    "DATABASE_URL", f"sqlite:///{os.path.join(_data_dir, 'portfolio.db')}"
-)
+
+_db_url = os.environ.get("DATABASE_URL", f"sqlite:///{os.path.join(_data_dir, 'portfolio.db')}")
+# Render (and some other hosts) issue postgres:// URLs; SQLAlchemy requires postgresql://
+if _db_url.startswith("postgres://"):
+    _db_url = _db_url.replace("postgres://", "postgresql://", 1)
+app.config["SQLALCHEMY_DATABASE_URI"] = _db_url
 app.config["SQLALCHEMY_TRACK_MODIFICATIONS"] = False
 db = SQLAlchemy(app)
 
