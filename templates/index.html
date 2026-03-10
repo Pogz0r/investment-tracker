@@ -1,0 +1,242 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Investment Tracker</title>
+  <link rel="stylesheet" href="/static/css/style.css" />
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.2/dist/chart.umd.min.js"></script>
+</head>
+<body>
+  <!-- ========== HEADER ========== -->
+  <header class="site-header">
+    <div class="header-inner">
+      <div class="brand">
+        <span class="brand-icon">📈</span>
+        <span class="brand-name">Investment Tracker</span>
+      </div>
+      <div class="header-meta">
+        <span class="rate-badge" id="fxRate">USD/CAD: —</span>
+        <span class="refresh-badge" id="lastUpdated">Updating…</span>
+        <span class="countdown-badge">Auto-refresh in <span id="countdown">60</span>s</span>
+      </div>
+    </div>
+  </header>
+
+  <main class="page">
+
+    <!-- ========== SUMMARY CARDS ========== -->
+    <section class="summary-grid">
+      <div class="card summary-card">
+        <div class="card-label">Total Portfolio</div>
+        <div class="card-value" id="totalUsd">$0.00</div>
+        <div class="card-sub" id="totalCad">CA$0.00</div>
+      </div>
+      <div class="card summary-card">
+        <div class="card-label">Stocks Value</div>
+        <div class="card-value" id="stocksUsd">$0.00</div>
+        <div class="card-sub" id="stocksCad">CA$0.00</div>
+      </div>
+      <div class="card summary-card">
+        <div class="card-label">Crypto Value</div>
+        <div class="card-value" id="cryptoUsd">$0.00</div>
+        <div class="card-sub" id="cryptoCad">CA$0.00</div>
+      </div>
+      <div class="card summary-card">
+        <div class="card-label">Total P&amp;L</div>
+        <div class="card-value" id="totalPl">$0.00</div>
+        <div class="card-sub" id="totalPlPct">0.00%</div>
+      </div>
+    </section>
+
+    <!-- ========== SAVINGS GOAL ========== -->
+    <section class="card goal-card">
+      <div class="goal-header">
+        <div>
+          <h2 class="section-title">Savings Goal</h2>
+          <p class="goal-meta" id="goalMeta">Set a target to track your progress</p>
+        </div>
+        <button class="btn btn-outline" id="openGoalModal">Set Goal</button>
+      </div>
+      <div class="progress-track">
+        <div class="progress-bar" id="goalBar" style="width:0%"></div>
+      </div>
+      <div class="progress-labels">
+        <span id="goalCurrent">$0</span>
+        <span id="goalTarget">Goal: $0</span>
+      </div>
+    </section>
+
+    <!-- ========== CHARTS ========== -->
+    <section class="charts-grid">
+      <div class="card chart-card">
+        <h2 class="section-title">Portfolio Allocation</h2>
+        <div class="chart-wrap chart-wrap--pie">
+          <canvas id="pieChart"></canvas>
+          <p class="chart-empty" id="pieEmpty">Add holdings to see allocation</p>
+        </div>
+      </div>
+      <div class="card chart-card chart-card--wide">
+        <h2 class="section-title">Portfolio Value History</h2>
+        <div class="chart-wrap">
+          <canvas id="lineChart"></canvas>
+          <p class="chart-empty" id="lineEmpty">History builds after the first hourly snapshot</p>
+        </div>
+      </div>
+    </section>
+
+    <!-- ========== HOLDINGS TABLES ========== -->
+    <section class="card holdings-card">
+      <div class="holdings-header">
+        <h2 class="section-title">Stock Holdings</h2>
+        <button class="btn btn-primary" id="openStockModal">+ Add Stock</button>
+      </div>
+      <div class="table-scroll">
+        <table class="holdings-table" id="stocksTable">
+          <thead>
+            <tr>
+              <th>Ticker</th>
+              <th>Shares</th>
+              <th>Avg Buy</th>
+              <th>Current</th>
+              <th>Value (USD)</th>
+              <th>Value (CAD)</th>
+              <th>P&amp;L (USD)</th>
+              <th>P&amp;L (CAD)</th>
+              <th>Change %</th>
+              <th></th>
+            </tr>
+          </thead>
+          <tbody id="stocksBody">
+            <tr class="empty-row"><td colspan="10">No stocks added yet</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </section>
+
+    <section class="card holdings-card">
+      <div class="holdings-header">
+        <h2 class="section-title">Crypto Holdings</h2>
+        <button class="btn btn-primary" id="openCryptoModal">+ Add Crypto</button>
+      </div>
+      <div class="table-scroll">
+        <table class="holdings-table" id="cryptoTable">
+          <thead>
+            <tr>
+              <th>Coin</th>
+              <th>Amount</th>
+              <th>Avg Buy</th>
+              <th>Current</th>
+              <th>Value (USD)</th>
+              <th>Value (CAD)</th>
+              <th>P&amp;L (USD)</th>
+              <th>P&amp;L (CAD)</th>
+              <th>Change %</th>
+              <th></th>
+            </tr>
+          </thead>
+          <tbody id="cryptoBody">
+            <tr class="empty-row"><td colspan="10">No crypto added yet</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </section>
+
+  </main>
+
+  <!-- ========== MODALS ========== -->
+
+  <!-- Add Stock -->
+  <div class="modal-overlay" id="stockModal">
+    <div class="modal">
+      <div class="modal-header">
+        <h3>Add Stock</h3>
+        <button class="modal-close" data-close="stockModal">&times;</button>
+      </div>
+      <form id="stockForm" autocomplete="off">
+        <div class="form-group">
+          <label>Ticker Symbol</label>
+          <input type="text" id="stockTicker" placeholder="e.g. AAPL" required />
+        </div>
+        <div class="form-group">
+          <label>Number of Shares</label>
+          <input type="number" id="stockShares" placeholder="e.g. 10" min="0.0001" step="any" required />
+        </div>
+        <div class="form-group">
+          <label>Average Purchase Price (USD)</label>
+          <input type="number" id="stockAvgPrice" placeholder="e.g. 150.00" min="0.0001" step="any" required />
+        </div>
+        <p class="form-error" id="stockError"></p>
+        <div class="modal-actions">
+          <button type="button" class="btn btn-outline" data-close="stockModal">Cancel</button>
+          <button type="submit" class="btn btn-primary" id="stockSubmitBtn">Add Stock</button>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <!-- Add Crypto -->
+  <div class="modal-overlay" id="cryptoModal">
+    <div class="modal">
+      <div class="modal-header">
+        <h3>Add Crypto</h3>
+        <button class="modal-close" data-close="cryptoModal">&times;</button>
+      </div>
+      <form id="cryptoForm" autocomplete="off">
+        <div class="form-group">
+          <label>CoinGecko Coin ID</label>
+          <input type="text" id="cryptoCoinId" placeholder="e.g. bitcoin, ethereum, solana" required />
+          <span class="form-hint">Use the CoinGecko coin ID (lowercase, no spaces)</span>
+        </div>
+        <div class="form-group">
+          <label>Display Name</label>
+          <input type="text" id="cryptoCoinName" placeholder="e.g. Bitcoin" required />
+        </div>
+        <div class="form-group">
+          <label>Amount Held</label>
+          <input type="number" id="cryptoAmount" placeholder="e.g. 0.5" min="0.00000001" step="any" required />
+        </div>
+        <div class="form-group">
+          <label>Average Purchase Price (USD)</label>
+          <input type="number" id="cryptoAvgPrice" placeholder="e.g. 30000" min="0.0001" step="any" required />
+        </div>
+        <p class="form-error" id="cryptoError"></p>
+        <div class="modal-actions">
+          <button type="button" class="btn btn-outline" data-close="cryptoModal">Cancel</button>
+          <button type="submit" class="btn btn-primary" id="cryptoSubmitBtn">Add Crypto</button>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <!-- Set Savings Goal -->
+  <div class="modal-overlay" id="goalModal">
+    <div class="modal">
+      <div class="modal-header">
+        <h3>Set Savings Goal</h3>
+        <button class="modal-close" data-close="goalModal">&times;</button>
+      </div>
+      <form id="goalForm" autocomplete="off">
+        <div class="form-group">
+          <label>Target Amount</label>
+          <input type="number" id="goalAmount" placeholder="e.g. 100000" min="1" step="any" required />
+        </div>
+        <div class="form-group">
+          <label>Currency</label>
+          <select id="goalCurrency">
+            <option value="USD">USD</option>
+            <option value="CAD">CAD</option>
+          </select>
+        </div>
+        <p class="form-error" id="goalError"></p>
+        <div class="modal-actions">
+          <button type="button" class="btn btn-outline" data-close="goalModal">Cancel</button>
+          <button type="submit" class="btn btn-primary">Save Goal</button>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <script src="/static/js/app.js"></script>
+</body>
+</html>
