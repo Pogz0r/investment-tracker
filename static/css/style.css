@@ -422,6 +422,54 @@ body {
 /* spinner inside button */
 .btn.loading { opacity: .65; pointer-events: none; }
 
+/* compact mode toggle */
+.compact-toggle {
+  background: none;
+  border: 1px solid var(--border);
+  color: var(--text-muted);
+  border-radius: var(--radius-sm);
+  padding: 3px 10px;
+  cursor: pointer;
+  font-size: .78rem;
+  transition: border-color .15s, color .15s, background .15s;
+  white-space: nowrap;
+}
+.compact-toggle:hover { border-color: var(--blue); color: var(--blue); }
+body.compact .compact-toggle {
+  border-color: var(--blue);
+  color: var(--blue);
+  background: rgba(88, 166, 255, .08);
+}
+
+/* watchlist table is narrower than holdings tables */
+.watchlist-table { min-width: 380px; }
+
+/* ============================================================
+   COMPACT MODE
+   ============================================================ */
+body.compact { font-size: 13px; }
+body.compact .header-inner { height: 44px; }
+body.compact .brand { font-size: .95rem; }
+body.compact .page { padding: 10px 14px 28px; gap: 10px; }
+body.compact .card { padding: 12px 16px; }
+body.compact .card-value { font-size: 1.15rem; }
+body.compact .card-sub { font-size: .8rem; }
+body.compact .card-label { font-size: .72rem; }
+body.compact .summary-grid { gap: 10px; }
+body.compact .section-title { font-size: .82rem; margin-bottom: 8px; }
+body.compact .holdings-card { padding: 10px 0; }
+body.compact .holdings-header { padding: 0 16px 8px; }
+body.compact .holdings-table td { padding: 6px 10px; }
+body.compact .holdings-table th { padding: 5px 10px; }
+body.compact .empty-row td { padding: 14px; }
+body.compact .chart-wrap { height: 190px; }
+body.compact .chart-wrap--pie { height: 190px; }
+body.compact .charts-grid { gap: 10px; }
+body.compact .goal-header { margin-bottom: 8px; }
+body.compact .progress-track { height: 7px; }
+body.compact .progress-labels { font-size: .75rem; }
+body.compact .goal-meta { font-size: .78rem; }
+
 /* ============================================================
    RESPONSIVE
    ============================================================ */

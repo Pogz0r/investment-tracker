@@ -63,6 +63,28 @@ document.getElementById("openGoalModal").addEventListener("click", () => {
   document.getElementById("goalError").textContent = "";
   openModal("goalModal");
 });
+document.getElementById("openWatchlistModal").addEventListener("click", () => {
+  document.getElementById("watchlistError").textContent = "";
+  document.getElementById("watchlistForm").reset();
+  openModal("watchlistModal");
+});
+
+// ── compact mode ───────────────────────────────────────────────────────────
+
+const compactToggle = document.getElementById("compactToggle");
+
+function applyCompact(on) {
+  document.body.classList.toggle("compact", on);
+  compactToggle.textContent = on ? "⊞ Normal" : "⊟ Compact";
+}
+
+applyCompact(localStorage.getItem("compactMode") === "1");
+
+compactToggle.addEventListener("click", () => {
+  const next = !document.body.classList.contains("compact");
+  localStorage.setItem("compactMode", next ? "1" : "0");
+  applyCompact(next);
+});
 
 // ── rendering helpers ──────────────────────────────────────────────────────
 
@@ -167,6 +189,22 @@ function renderGoal(goal, totalUsd, totalCad, usdToCad) {
     `${fmt(pct, 1)}% of your ${fmtFn(target)} ${currency} goal reached`;
   document.getElementById("goalCurrent").textContent = fmtFn(current);
   document.getElementById("goalTarget").textContent = `Goal: ${fmtFn(target)}`;
+}
+
+function renderWatchlist(items) {
+  const tbody = document.getElementById("watchlistBody");
+  if (!items.length) {
+    tbody.innerHTML = '<tr class="empty-row"><td colspan="5">No tickers in watchlist yet</td></tr>';
+    return;
+  }
+  tbody.innerHTML = items.map((w) => `
+    <tr>
+      <td><span class="ticker-badge">${w.name}</span></td>
+      <td>${fmtUsd(w.current_price)}</td>
+      <td>${fmtCad(w.current_price_cad)}</td>
+      <td>${pillHtml(w.day_change_pct)}</td>
+      <td><button class="btn-remove" onclick="removeWatchlistItem('${w.ticker}')">Remove</button></td>
+    </tr>`).join("");
 }
 
 // ── Chart.js palettes ──────────────────────────────────────────────────────
@@ -302,6 +340,7 @@ async function fetchPortfolio() {
     renderSummary(data);
     renderStocks(data.stocks);
     renderCrypto(data.crypto);
+    renderWatchlist(data.watchlist || []);
     renderGoal(data.savings_goal, data.total_usd, data.total_cad, data.usd_to_cad);
 
     const allHoldings = [...data.stocks, ...data.crypto];
@@ -336,6 +375,13 @@ async function removeStock(ticker) {
   fetchPortfolio();
 }
 window.removeStock = removeStock;
+
+async function removeWatchlistItem(ticker) {
+  if (!confirm(`Remove ${ticker.replace(".TO", "")} from your watchlist?`)) return;
+  await fetch(`/api/watchlist/${ticker}`, { method: "DELETE" });
+  fetchPortfolio();
+}
+window.removeWatchlistItem = removeWatchlistItem;
 
 async function removeCrypto(coinId) {
   if (!confirm(`Remove ${coinId} from your portfolio?`)) return;
@@ -444,6 +490,36 @@ document.getElementById("goalForm").addEventListener("submit", async (e) => {
     }
   } catch {
     errEl.textContent = "Network error. Please try again.";
+  }
+});
+
+document.getElementById("watchlistForm").addEventListener("submit", async (e) => {
+  e.preventDefault();
+  const errEl = document.getElementById("watchlistError");
+  const submitBtn = document.getElementById("watchlistSubmitBtn");
+  errEl.textContent = "";
+  submitBtn.classList.add("loading");
+  submitBtn.textContent = "Adding…";
+
+  try {
+    const res = await fetch("/api/watchlist", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ ticker: document.getElementById("watchlistTicker").value }),
+    });
+    const data = await res.json();
+    if (!res.ok) {
+      errEl.textContent = data.error;
+    } else {
+      closeModal("watchlistModal");
+      fetchPortfolio();
+      startCountdown();
+    }
+  } catch {
+    errEl.textContent = "Network error. Please try again.";
+  } finally {
+    submitBtn.classList.remove("loading");
+    submitBtn.textContent = "Add to Watchlist";
   }
 });
 

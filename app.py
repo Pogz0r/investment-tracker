@@ -24,7 +24,7 @@ FRANKFURTER_BASE_URL = "https://api.frankfurter.dev"
 def load_portfolio():
     if not os.path.exists(DATA_FILE):
         os.makedirs(os.path.dirname(DATA_FILE), exist_ok=True)
-        default = {"stocks": [], "crypto": [], "savings_goal": {"target": 0, "currency": "USD"}, "portfolio_history": []}
+        default = {"stocks": [], "crypto": [], "watchlist": [], "savings_goal": {"target": 0, "currency": "USD"}, "portfolio_history": []}
         save_portfolio(default)
         return default
     with open(DATA_FILE, "r") as f:
@@ -72,6 +72,29 @@ def get_crypto_prices(coin_ids: list[str]) -> dict:
     except Exception as exc:
         print(f"[crypto] {exc}")
         return {}
+
+
+def get_watchlist_data(tickers: list[str], usd_to_cad: float) -> list:
+    result = []
+    for ticker in tickers:
+        try:
+            info = yf.Ticker(ticker).fast_info
+            price = float(info.last_price or 0)
+            prev = float(info.previous_close or 0)
+            day_change = price - prev
+            day_change_pct = (day_change / prev * 100) if prev else 0
+        except Exception as exc:
+            print(f"[watchlist] {ticker}: {exc}")
+            price, prev, day_change, day_change_pct = 0.0, 0.0, 0.0, 0.0
+        result.append({
+            "ticker": ticker,
+            "name": ticker.replace(".TO", ""),
+            "current_price": price,
+            "current_price_cad": price * usd_to_cad,
+            "day_change": day_change,
+            "day_change_pct": day_change_pct,
+        })
+    return result
 
 
 def get_exchange_rate() -> float:
@@ -175,9 +198,13 @@ def get_portfolio():
         portfolio["portfolio_history"] = history
         save_portfolio(portfolio)
 
+    watchlist_tickers = [w["ticker"] for w in portfolio.get("watchlist", [])]
+    watchlist_out = get_watchlist_data(watchlist_tickers, usd_to_cad)
+
     return jsonify({
         "stocks": stocks_out,
         "crypto": crypto_out,
+        "watchlist": watchlist_out,
         "total_usd": total_usd,
         "total_cad": total_cad,
         "total_stocks_usd": total_stocks_usd,
@@ -297,6 +324,50 @@ def update_savings_goal():
     portfolio["savings_goal"] = {"target": target, "currency": currency}
     save_portfolio(portfolio)
     return jsonify({"message": "Savings goal updated"})
+
+
+def _resolve_ticker(raw: str):
+    """Return the yfinance-valid ticker string, auto-retrying with .TO for TSX."""
+    def valid(t):
+        try:
+            return bool(yf.Ticker(t).fast_info.last_price)
+        except Exception:
+            return False
+    if valid(raw):
+        return raw
+    tsx = raw if raw.endswith(".TO") else raw + ".TO"
+    return tsx if valid(tsx) else None
+
+
+@app.route("/api/watchlist", methods=["POST"])
+def add_watchlist():
+    body = request.json or {}
+    raw = body.get("ticker", "").upper().strip()
+    if not raw:
+        return jsonify({"error": "Ticker is required"}), 400
+
+    ticker = _resolve_ticker(raw)
+    if not ticker:
+        return jsonify({"error": f"Could not find ticker '{raw}'. Check the symbol and try again."}), 400
+
+    portfolio = load_portfolio()
+    if "watchlist" not in portfolio:
+        portfolio["watchlist"] = []
+    if any(w["ticker"] == ticker for w in portfolio["watchlist"]):
+        return jsonify({"error": f"{ticker.replace('.TO', '')} is already in your watchlist"}), 409
+
+    portfolio["watchlist"].append({"ticker": ticker})
+    save_portfolio(portfolio)
+    return jsonify({"message": f"{ticker.replace('.TO', '')} added to watchlist"})
+
+
+@app.route("/api/watchlist/<ticker>", methods=["DELETE"])
+def remove_watchlist(ticker):
+    ticker = ticker.upper()
+    portfolio = load_portfolio()
+    portfolio["watchlist"] = [w for w in portfolio.get("watchlist", []) if w["ticker"] != ticker]
+    save_portfolio(portfolio)
+    return jsonify({"message": f"{ticker} removed from watchlist"})
 
 
 if __name__ == "__main__":

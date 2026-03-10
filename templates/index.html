@@ -19,6 +19,7 @@
         <span class="rate-badge" id="fxRate">USD/CAD: —</span>
         <span class="refresh-badge" id="lastUpdated">Updating…</span>
         <span class="countdown-badge">Auto-refresh in <span id="countdown">60</span>s</span>
+        <button class="compact-toggle" id="compactToggle">⊟ Compact</button>
       </div>
     </div>
   </header>
@@ -64,6 +65,30 @@
       <div class="progress-labels">
         <span id="goalCurrent">$0</span>
         <span id="goalTarget">Goal: $0</span>
+      </div>
+    </section>
+
+    <!-- ========== WATCHLIST ========== -->
+    <section class="card holdings-card">
+      <div class="holdings-header">
+        <h2 class="section-title">Watchlist</h2>
+        <button class="btn btn-outline" id="openWatchlistModal">+ Add to Watchlist</button>
+      </div>
+      <div class="table-scroll">
+        <table class="holdings-table watchlist-table">
+          <thead>
+            <tr>
+              <th>Ticker</th>
+              <th>Price (USD)</th>
+              <th>Price (CAD)</th>
+              <th>Day Change</th>
+              <th></th>
+            </tr>
+          </thead>
+          <tbody id="watchlistBody">
+            <tr class="empty-row"><td colspan="5">No tickers in watchlist yet</td></tr>
+          </tbody>
+        </table>
       </div>
     </section>
 
@@ -233,6 +258,28 @@
         <div class="modal-actions">
           <button type="button" class="btn btn-outline" data-close="goalModal">Cancel</button>
           <button type="submit" class="btn btn-primary">Save Goal</button>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <!-- Add to Watchlist -->
+  <div class="modal-overlay" id="watchlistModal">
+    <div class="modal">
+      <div class="modal-header">
+        <h3>Add to Watchlist</h3>
+        <button class="modal-close" data-close="watchlistModal">&times;</button>
+      </div>
+      <form id="watchlistForm" autocomplete="off">
+        <div class="form-group">
+          <label>Ticker Symbol</label>
+          <input type="text" id="watchlistTicker" placeholder="e.g. NVDA, AMD, VFV" required />
+          <span class="form-hint">For Canadian stocks, .TO is optional (e.g. VFV or VFV.TO)</span>
+        </div>
+        <p class="form-error" id="watchlistError"></p>
+        <div class="modal-actions">
+          <button type="button" class="btn btn-outline" data-close="watchlistModal">Cancel</button>
+          <button type="submit" class="btn btn-primary" id="watchlistSubmitBtn">Add to Watchlist</button>
         </div>
       </form>
     </div>
