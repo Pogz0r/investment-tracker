@@ -1,5 +1,6 @@
 import os
 from datetime import datetime, timedelta
+from typing import Optional
 
 import yfinance as yf
 import requests
@@ -103,8 +104,12 @@ def load_user(user_id):
 
 
 # Create tables on startup (idempotent)
-with app.app_context():
-    db.create_all()
+try:
+    with app.app_context():
+        db.create_all()
+    print("[startup] database tables ready", flush=True)
+except Exception as _db_err:
+    print(f"[startup] db.create_all() failed: {_db_err}", flush=True)
 
 
 # ── Price helpers ─────────────────────────────────────────────────────────────
@@ -176,7 +181,7 @@ def get_exchange_rate() -> float:
         return 1.37
 
 
-def _resolve_ticker(raw: str) -> str | None:
+def _resolve_ticker(raw: str) -> Optional[str]:
     """Return valid yfinance ticker, auto-retrying with .TO suffix for TSX stocks."""
     def valid(t):
         try:
