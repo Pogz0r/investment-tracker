@@ -52,7 +52,15 @@ document.querySelectorAll(".modal-overlay").forEach((overlay) => {
 document.getElementById("openStockModal").addEventListener("click", () => {
   document.getElementById("stockError").textContent = "";
   document.getElementById("stockForm").reset();
+  document.getElementById("stockAvgPriceLabel").textContent = "Average Purchase Price (USD)";
   openModal("stockModal");
+});
+
+// Live label update: switch USD ↔ CAD as user types the ticker
+document.getElementById("stockTicker").addEventListener("input", function () {
+  const isCAD = this.value.trim().toUpperCase().endsWith(".TO");
+  document.getElementById("stockAvgPriceLabel").textContent =
+    "Average Purchase Price (" + (isCAD ? "CAD" : "USD") + ")";
 });
 document.getElementById("openCryptoModal").addEventListener("click", () => {
   document.getElementById("cryptoError").textContent = "";
@@ -95,21 +103,23 @@ function renderStocks(stocks) {
     return;
   }
   tbody.innerHTML = stocks
-    .map(
-      (s) => `
+    .map((s) => {
+      const isCAD = s.purchase_currency === "CAD";
+      const fmtNative = isCAD ? fmtCad : fmtUsd;
+      return `
     <tr>
       <td><span class="ticker-badge">${s.name}</span></td>
       <td>${fmt(s.shares, 4)}</td>
-      <td>${fmtUsd(s.avg_purchase_price)}</td>
-      <td>${fmtUsd(s.current_price)}</td>
+      <td>${fmtNative(s.avg_purchase_price)}</td>
+      <td>${fmtNative(s.current_price)}</td>
       <td>${fmtUsd(s.current_value_usd)}</td>
       <td>${fmtCad(s.current_value_cad)}</td>
       <td class="${plClass(s.profit_loss_usd)}">${fmtUsd(s.profit_loss_usd)}</td>
       <td class="${plClass(s.profit_loss_cad)}">${fmtCad(s.profit_loss_cad)}</td>
       <td>${pillHtml(s.percent_change)}</td>
       <td><button class="btn-remove" onclick="removeStock('${s.ticker}')">Remove</button></td>
-    </tr>`
-    )
+    </tr>`;
+    })
     .join("");
 }
 
@@ -139,13 +149,11 @@ function renderCrypto(crypto) {
 }
 
 function renderSummary(data) {
-  // total P&L
-  const allHoldings = [...data.stocks, ...data.crypto];
-  const totalCost = allHoldings.reduce((sum, h) => {
-    const qty = h.shares ?? h.amount;
-    return sum + qty * h.avg_purchase_price;
-  }, 0);
-  const totalPl = data.total_usd - totalCost;
+  // total P&L — sum pre-computed USD P&L from server (handles mixed currencies correctly)
+  const totalPl = [...data.stocks, ...data.crypto].reduce(
+    (sum, h) => sum + h.profit_loss_usd, 0
+  );
+  const totalCost = data.total_usd - totalPl;
   const totalPlPct = totalCost > 0 ? (totalPl / totalCost) * 100 : 0;
 
   document.getElementById("totalUsd").textContent = fmtUsd(data.total_usd);

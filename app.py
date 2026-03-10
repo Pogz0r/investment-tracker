@@ -66,6 +66,7 @@ class Stock(db.Model):
     ticker = db.Column(db.String(20), nullable=False)
     shares = db.Column(db.Float, nullable=False)
     avg_purchase_price = db.Column(db.Float, nullable=False)
+    purchase_currency = db.Column(db.String(3), nullable=False, default="USD", server_default="USD")
 
 
 class Crypto(db.Model):
@@ -107,6 +108,16 @@ def load_user(user_id):
 try:
     with app.app_context():
         db.create_all()
+        # Migration: add purchase_currency to existing stock tables
+        try:
+            with db.engine.connect() as _conn:
+                _conn.execute(db.text(
+                    "ALTER TABLE stock ADD COLUMN purchase_currency VARCHAR(3) NOT NULL DEFAULT 'USD'"
+                ))
+                _conn.commit()
+            print("[startup] migrated: added purchase_currency column", flush=True)
+        except Exception:
+            pass  # Column already exists — safe to ignore
     print("[startup] database tables ready", flush=True)
 except Exception as _db_err:
     print(f"[startup] db.create_all() failed: {_db_err}", flush=True)
@@ -267,23 +278,44 @@ def get_portfolio():
     stocks_out, total_stocks_usd = [], 0.0
     for s in stocks:
         cp = stock_prices.get(s.ticker, 0)
-        cv = cp * s.shares
-        pl = cv - s.avg_purchase_price * s.shares
-        pct = ((cp - s.avg_purchase_price) / s.avg_purchase_price * 100) if s.avg_purchase_price else 0
+        currency = s.purchase_currency or "USD"
+
+        if currency == "CAD":
+            # yfinance returns native CAD price for .TO stocks
+            cp_cad = cp
+            cp_usd = cp / usd_to_cad if usd_to_cad else 0
+            avg_cad = s.avg_purchase_price
+            avg_usd = s.avg_purchase_price / usd_to_cad if usd_to_cad else 0
+        else:
+            cp_usd = cp
+            cp_cad = cp * usd_to_cad
+            avg_usd = s.avg_purchase_price
+            avg_cad = s.avg_purchase_price * usd_to_cad
+
+        cv_usd = cp_usd * s.shares
+        cv_cad = cp_cad * s.shares
+        pl_usd = (cp_usd - avg_usd) * s.shares
+        pl_cad = (cp_cad - avg_cad) * s.shares
+        # Percent change always relative to native purchase currency
+        avg_native = avg_cad if currency == "CAD" else avg_usd
+        cp_native  = cp_cad  if currency == "CAD" else cp_usd
+        pct = ((cp_native - avg_native) / avg_native * 100) if avg_native else 0
+
         stocks_out.append({
             "ticker": s.ticker,
             "name": s.ticker.replace(".TO", ""),
             "shares": s.shares,
-            "avg_purchase_price": s.avg_purchase_price,
-            "current_price": cp,
-            "current_value_usd": cv,
-            "current_value_cad": cv * usd_to_cad,
-            "profit_loss_usd": pl,
-            "profit_loss_cad": pl * usd_to_cad,
+            "avg_purchase_price": s.avg_purchase_price,  # in native currency
+            "purchase_currency": currency,
+            "current_price": cp_cad if currency == "CAD" else cp_usd,  # native
+            "current_value_usd": cv_usd,
+            "current_value_cad": cv_cad,
+            "profit_loss_usd": pl_usd,
+            "profit_loss_cad": pl_cad,
             "percent_change": pct,
             "type": "stock",
         })
-        total_stocks_usd += cv
+        total_stocks_usd += cv_usd
 
     # --- crypto ---
     crypto_out, total_crypto_usd = [], 0.0
@@ -379,9 +411,12 @@ def add_stock():
     if Stock.query.filter_by(user_id=current_user.id, ticker=ticker).first():
         return jsonify({"error": f"{ticker.replace('.TO', '')} is already in your portfolio"}), 409
 
-    db.session.add(Stock(user_id=current_user.id, ticker=ticker, shares=shares, avg_purchase_price=avg_price))
+    purchase_currency = "CAD" if ticker.endswith(".TO") else "USD"
+    db.session.add(Stock(user_id=current_user.id, ticker=ticker, shares=shares,
+                         avg_purchase_price=avg_price, purchase_currency=purchase_currency))
     db.session.commit()
-    return jsonify({"message": f"{ticker.replace('.TO', '')} added successfully"})
+    return jsonify({"message": f"{ticker.replace('.TO', '')} added successfully",
+                    "purchase_currency": purchase_currency})
 
 
 @app.route("/api/stocks/<ticker>", methods=["DELETE"])
