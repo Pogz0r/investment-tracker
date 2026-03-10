@@ -11,7 +11,8 @@ load_dotenv()
 
 app = Flask(__name__)
 
-DATA_FILE = os.path.join(os.path.dirname(__file__), "data", "portfolio.json")
+_data_dir = os.environ.get("DATA_DIR", os.path.join(os.path.dirname(__file__), "data"))
+DATA_FILE = os.path.join(_data_dir, "portfolio.json")
 COINGECKO_API_KEY = os.getenv("COINGECKO_API_KEY", "")
 COINGECKO_BASE_URL = "https://api.coingecko.com/api/v3"
 FRANKFURTER_BASE_URL = "https://api.frankfurter.dev"
@@ -370,5 +371,11 @@ def remove_watchlist(ticker):
     return jsonify({"message": f"{ticker} removed from watchlist"})
 
 
+@app.route("/health")
+def health():
+    return "ok", 200
+
+
 if __name__ == "__main__":
-    app.run(debug=True, port=5000)
+    port = int(os.environ.get("PORT", 5000))
+    app.run(host="0.0.0.0", port=port)

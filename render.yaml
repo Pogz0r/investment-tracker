@@ -1,0 +1,15 @@
+services:
+  - type: web
+    name: bdc-investment-tracker
+    runtime: python
+    buildCommand: pip install -r requirements.txt
+    startCommand: gunicorn app:app
+    envVars:
+      - key: COINGECKO_API_KEY
+        sync: false
+      - key: DATA_DIR
+        value: /data
+    disk:
+      name: portfolio-data
+      mountPath: /data
+      sizeGB: 1
