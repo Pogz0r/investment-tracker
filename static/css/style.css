@@ -857,6 +857,44 @@ body.compact .user-avatar { width: 26px; height: 26px; }
 
 .btn.loading { opacity: .5; pointer-events: none; }
 
+/* currency toggle */
+.currency-toggle {
+  display: flex;
+  align-items: center;
+  background: var(--bg-card-alt);
+  border: 1px solid var(--border);
+  border-radius: 20px;
+  padding: 2px;
+  gap: 1px;
+  flex-shrink: 0;
+}
+
+.currency-opt {
+  background: none;
+  border: none;
+  color: var(--text-sub);
+  padding: 2px 10px;
+  border-radius: 16px;
+  font-family: var(--font-mono);
+  font-size: .68rem;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  cursor: pointer;
+  transition: background .18s, color .18s;
+  white-space: nowrap;
+  line-height: 1.6;
+}
+
+.currency-opt:hover:not(.active) {
+  color: var(--text);
+  background: var(--bg-hover);
+}
+
+.currency-opt.active {
+  background: var(--amber);
+  color: #07090d;
+}
+
 /* compact mode toggle */
 .compact-toggle {
   background: none;

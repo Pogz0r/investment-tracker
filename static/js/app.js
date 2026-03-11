@@ -11,6 +11,12 @@ let countdownValue = 60;
 let countdownInterval = null;
 let refreshInterval = null;
 
+// ── last fetched data (for instant re-render on toggle) ────────────────────
+let lastData = null;
+
+// ── currency display mode ──────────────────────────────────────────────────
+let currencyMode = localStorage.getItem("currencyMode") || "USD";
+
 // ── helpers ────────────────────────────────────────────────────────────────
 
 const fmt = (n, digits = 2) =>
@@ -75,6 +81,25 @@ document.getElementById("openWatchlistModal").addEventListener("click", () => {
   document.getElementById("watchlistError").textContent = "";
   document.getElementById("watchlistForm").reset();
   openModal("watchlistModal");
+});
+
+// ── currency toggle ────────────────────────────────────────────────────────
+
+function applyCurrencyMode(mode) {
+  currencyMode = mode;
+  localStorage.setItem("currencyMode", mode);
+  document.querySelectorAll(".currency-opt").forEach((btn) => {
+    btn.classList.toggle("active", btn.dataset.currency === mode);
+  });
+  if (lastData) renderSummary(lastData);
+}
+
+// Initialise toggle state from localStorage before first fetch
+applyCurrencyMode(currencyMode);
+
+document.getElementById("currencyToggle").addEventListener("click", (e) => {
+  const btn = e.target.closest(".currency-opt");
+  if (btn) applyCurrencyMode(btn.dataset.currency);
 });
 
 // ── compact mode ───────────────────────────────────────────────────────────
@@ -149,27 +174,36 @@ function renderCrypto(crypto) {
 }
 
 function renderSummary(data) {
-  // total P&L — sum pre-computed USD P&L from server (handles mixed currencies correctly)
-  const totalPl = [...data.stocks, ...data.crypto].reduce(
-    (sum, h) => sum + h.profit_loss_usd, 0
-  );
-  const totalCost = data.total_usd - totalPl;
-  const totalPlPct = totalCost > 0 ? (totalPl / totalCost) * 100 : 0;
+  const allHoldings = [...data.stocks, ...data.crypto];
 
-  document.getElementById("totalUsd").textContent = fmtUsd(data.total_usd);
-  document.getElementById("totalCad").textContent = fmtCad(data.total_cad);
-  document.getElementById("stocksUsd").textContent = fmtUsd(data.total_stocks_usd);
-  document.getElementById("stocksCad").textContent = fmtCad(data.total_stocks_cad);
-  document.getElementById("cryptoUsd").textContent = fmtUsd(data.total_crypto_usd);
-  document.getElementById("cryptoCad").textContent = fmtCad(data.total_crypto_cad);
+  // P&L totals in both currencies
+  const totalPlUsd = allHoldings.reduce((sum, h) => sum + h.profit_loss_usd, 0);
+  const totalPlCad = allHoldings.reduce((sum, h) => sum + h.profit_loss_cad, 0);
+  const totalCost = data.total_usd - totalPlUsd;
+  const totalPlPct = totalCost > 0 ? (totalPlUsd / totalCost) * 100 : 0;
 
+  const cad = currencyMode === "CAD";
+
+  // Total Portfolio
+  document.getElementById("totalUsd").textContent = cad ? fmtCad(data.total_cad)         : fmtUsd(data.total_usd);
+  document.getElementById("totalCad").textContent = cad ? fmtUsd(data.total_usd)          : fmtCad(data.total_cad);
+
+  // Stocks Value
+  document.getElementById("stocksUsd").textContent = cad ? fmtCad(data.total_stocks_cad) : fmtUsd(data.total_stocks_usd);
+  document.getElementById("stocksCad").textContent = cad ? fmtUsd(data.total_stocks_usd) : fmtCad(data.total_stocks_cad);
+
+  // Crypto Value
+  document.getElementById("cryptoUsd").textContent = cad ? fmtCad(data.total_crypto_cad) : fmtUsd(data.total_crypto_usd);
+  document.getElementById("cryptoCad").textContent = cad ? fmtUsd(data.total_crypto_usd) : fmtCad(data.total_crypto_cad);
+
+  // Total P&L — primary flips currency, secondary always shows %
   const plEl = document.getElementById("totalPl");
-  plEl.textContent = fmtUsd(totalPl);
-  plEl.className = "card-value " + plClass(totalPl);
+  plEl.textContent = cad ? fmtCad(totalPlCad) : fmtUsd(totalPlUsd);
+  plEl.className = "card-value " + plClass(totalPlUsd);
 
   const plPctEl = document.getElementById("totalPlPct");
   plPctEl.textContent = fmtPct(totalPlPct);
-  plPctEl.className = "card-sub " + plClass(totalPl);
+  plPctEl.className = "card-sub " + plClass(totalPlUsd);
 
   // FX
   document.getElementById("fxRate").textContent = `USD/CAD: ${fmt(data.usd_to_cad, 4)}`;
@@ -346,6 +380,7 @@ async function fetchPortfolio() {
     const res = await fetch("/api/portfolio");
     const data = await res.json();
 
+    lastData = data;
     renderSummary(data);
     renderStocks(data.stocks);
     renderCrypto(data.crypto);
