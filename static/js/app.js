@@ -218,9 +218,9 @@ function renderWatchlist(items) {
 // ── Chart.js palettes ──────────────────────────────────────────────────────
 
 const PALETTE = [
-  "#58a6ff", "#bc8cff", "#3fb950", "#f0883e", "#ff7b72",
-  "#79c0ff", "#d2a8ff", "#56d364", "#ffa657", "#ffa198",
-  "#1f6feb", "#8957e5", "#238636", "#d4a72c", "#da3633",
+  "#d4890a", "#00c87a", "#4d9eff", "#ff3d4f", "#a78bfa",
+  "#f0a020", "#00d97e", "#60a5fa", "#fb7185", "#c4b5fd",
+  "#b36800", "#00a865", "#3b82f6", "#e11d48", "#8b5cf6",
 ];
 
 function renderPieChart(allHoldings) {
@@ -251,7 +251,7 @@ function renderPieChart(allHoldings) {
     type: "doughnut",
     data: {
       labels,
-      datasets: [{ data: values, backgroundColor: colors, borderWidth: 2, borderColor: "#161b22" }],
+      datasets: [{ data: values, backgroundColor: colors, borderWidth: 2, borderColor: "#07090d" }],
     },
     options: {
       responsive: true,
@@ -259,7 +259,7 @@ function renderPieChart(allHoldings) {
       plugins: {
         legend: {
           position: "bottom",
-          labels: { color: "#8b949e", font: { size: 11 }, padding: 10, boxWidth: 12 },
+          labels: { color: "#6a7d96", font: { size: 11, family: "'Syne', sans-serif" }, padding: 12, boxWidth: 10 },
         },
         tooltip: {
           callbacks: {
@@ -303,8 +303,8 @@ function renderLineChart(history) {
       datasets: [{
         label: "Portfolio Value (USD)",
         data: values,
-        borderColor: "#58a6ff",
-        backgroundColor: "rgba(88,166,255,.08)",
+        borderColor: "#00c87a",
+        backgroundColor: "rgba(0,200,122,.05)",
         borderWidth: 2,
         pointRadius: 3,
         pointHoverRadius: 5,
@@ -325,11 +325,12 @@ function renderLineChart(history) {
         },
       },
       scales: {
-        x: { grid: { color: "#21262d" }, ticks: { color: "#8b949e", maxTicksLimit: 10 } },
+        x: { grid: { color: "#1c2535" }, ticks: { color: "#3d4f63", maxTicksLimit: 10, font: { family: "'JetBrains Mono', monospace", size: 11 } } },
         y: {
-          grid: { color: "#21262d" },
+          grid: { color: "#1c2535" },
           ticks: {
-            color: "#8b949e",
+            color: "#3d4f63",
+            font: { family: "'JetBrains Mono', monospace", size: 11 },
             callback: (v) => "$" + (v >= 1000 ? (v / 1000).toFixed(1) + "k" : v),
           },
         },
