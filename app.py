@@ -1,4 +1,5 @@
 import os
+import threading
 from datetime import datetime, timedelta
 from typing import Optional
 
@@ -31,6 +32,12 @@ if _db_url.startswith("postgres://"):
     _db_url = _db_url.replace("postgres://", "postgresql://", 1)
 app.config["SQLALCHEMY_DATABASE_URI"] = _db_url
 app.config["SQLALCHEMY_TRACK_MODIFICATIONS"] = False
+# Fail fast on bad DB connections instead of hanging gunicorn workers.
+# connect_timeout is a psycopg2 kwarg; SQLite doesn't support it.
+_engine_opts: dict = {"pool_pre_ping": True}
+if _db_url.startswith("postgresql"):
+    _engine_opts["connect_args"] = {"connect_timeout": 10}
+app.config["SQLALCHEMY_ENGINE_OPTIONS"] = _engine_opts
 db = SQLAlchemy(app)
 
 # ── Flask-Login ───────────────────────────────────────────────────────────────
@@ -107,23 +114,30 @@ def load_user(user_id):
     return db.session.get(User, int(user_id))
 
 
-# Create tables on startup (idempotent)
-try:
-    with app.app_context():
-        db.create_all()
-        # Migration: add purchase_currency to existing stock tables
-        try:
-            with db.engine.connect() as _conn:
-                _conn.execute(db.text(
-                    "ALTER TABLE stock ADD COLUMN purchase_currency VARCHAR(3) NOT NULL DEFAULT 'USD'"
-                ))
-                _conn.commit()
-            print("[startup] migrated: added purchase_currency column", flush=True)
-        except Exception:
-            pass  # Column already exists — safe to ignore
-    print("[startup] database tables ready", flush=True)
-except Exception as _db_err:
-    print(f"[startup] db.create_all() failed: {_db_err}", flush=True)
+# ── DB initialisation (background thread so gunicorn serves /health immediately)
+
+def _init_db():
+    """Create tables and run migrations. Runs in a background thread at startup
+    so the gunicorn worker is ready to handle requests (especially /health)
+    before the database connection is established."""
+    try:
+        with app.app_context():
+            db.create_all()
+            # Migration: add purchase_currency to existing stock rows
+            try:
+                with db.engine.connect() as _conn:
+                    _conn.execute(db.text(
+                        "ALTER TABLE stock ADD COLUMN purchase_currency VARCHAR(3) NOT NULL DEFAULT 'USD'"
+                    ))
+                    _conn.commit()
+                print("[startup] migrated: added purchase_currency column", flush=True)
+            except Exception:
+                pass  # Column already exists — safe to ignore
+        print("[startup] database tables ready", flush=True)
+    except Exception as _db_err:
+        print(f"[startup] db.create_all() failed: {_db_err}", flush=True)
+
+threading.Thread(target=_init_db, daemon=True).start()
 
 
 # ── Price helpers ─────────────────────────────────────────────────────────────
