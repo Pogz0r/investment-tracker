@@ -146,3 +146,31 @@ investment-tracker/
 - History snapshots are taken at most once per hour to avoid bloating the JSON file.
 - History is kept for 90 days.
 - All prices are in USD; CAD values are calculated using the live Frankfurter rate.
+
+
+---
+
+## Private Portfolio Export API
+
+A private, read-only endpoint is available for Sage/OpenClaw:
+
+```
+GET /api/portfolio/export
+```
+
+Authentication options:
+- `Authorization: Bearer <PORTFOLIO_EXPORT_TOKEN>`
+- or `X-Portfolio-Token: <PORTFOLIO_EXPORT_TOKEN>`
+
+Recommended environment variables:
+
+```
+PORTFOLIO_EXPORT_TOKEN=your_long_random_secret
+PORTFOLIO_EXPORT_USER_EMAIL=your_google_login_email_here
+```
+
+Notes:
+- This endpoint is read-only
+- It does not require browser login if the token is valid
+- Use header-based auth only; do not put the token in the URL
+- Keep the token private and do not commit it

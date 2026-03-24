@@ -1,11 +1,12 @@
 import os
+import hmac
 import threading
 from datetime import datetime, timedelta
 from typing import Optional
 
 import yfinance as yf
 import requests
-from flask import Flask, render_template, request, jsonify, redirect, url_for
+from flask import Flask, render_template, request, jsonify, redirect, url_for, abort
 from flask_sqlalchemy import SQLAlchemy
 from flask_login import (
     LoginManager, UserMixin, login_user, logout_user,
@@ -48,6 +49,8 @@ login_manager.login_view = "login"
 COINGECKO_API_KEY = os.environ.get("COINGECKO_API_KEY", "")
 COINGECKO_BASE_URL = "https://api.coingecko.com/api/v3"
 FRANKFURTER_BASE_URL = "https://api.frankfurter.app"
+PORTFOLIO_EXPORT_TOKEN = os.environ.get("PORTFOLIO_EXPORT_TOKEN", "")
+PORTFOLIO_EXPORT_USER_EMAIL = os.environ.get("PORTFOLIO_EXPORT_USER_EMAIL", "")
 
 # ── Google OAuth ──────────────────────────────────────────────────────────────
 oauth = OAuth(app)
@@ -272,16 +275,28 @@ def logout():
 
 # ── Dashboard ─────────────────────────────────────────────────────────────────
 
-@app.route("/")
-@login_required
-def index():
-    return render_template("index.html")
+def _portfolio_owner_for_export():
+    if PORTFOLIO_EXPORT_USER_EMAIL:
+        user = User.query.filter_by(email=PORTFOLIO_EXPORT_USER_EMAIL).first()
+        if user:
+            return user
+    return User.query.order_by(User.id.asc()).first()
 
 
-@app.route("/api/portfolio")
-@login_required
-def get_portfolio():
-    uid = current_user.id
+def _authorized_export_request():
+    if not PORTFOLIO_EXPORT_TOKEN:
+        abort(503, description="Portfolio export token is not configured")
+    auth = request.headers.get("Authorization", "")
+    token = ""
+    if auth.startswith("Bearer "):
+        token = auth.split(" ", 1)[1].strip()
+    if not token:
+        token = request.headers.get("X-Portfolio-Token", "").strip()
+    if not token or not hmac.compare_digest(token, PORTFOLIO_EXPORT_TOKEN):
+        abort(401)
+
+
+def _build_portfolio_payload(uid: int, persist_history: bool = True):
     stocks = Stock.query.filter_by(user_id=uid).all()
     cryptos = Crypto.query.filter_by(user_id=uid).all()
     watchlist_items = WatchlistItem.query.filter_by(user_id=uid).all()
@@ -291,14 +306,12 @@ def get_portfolio():
     crypto_prices = get_crypto_prices([c.coin_id for c in cryptos])
     usd_to_cad = get_exchange_rate()
 
-    # --- stocks ---
     stocks_out, total_stocks_usd = [], 0.0
     for s in stocks:
         cp = stock_prices.get(s.ticker, 0)
         currency = s.purchase_currency or "USD"
 
         if currency == "CAD":
-            # yfinance returns native CAD price for .TO stocks
             cp_cad = cp
             cp_usd = cp / usd_to_cad if usd_to_cad else 0
             avg_cad = s.avg_purchase_price
@@ -313,7 +326,6 @@ def get_portfolio():
         cv_cad = cp_cad * s.shares
         pl_usd = (cp_usd - avg_usd) * s.shares
         pl_cad = (cp_cad - avg_cad) * s.shares
-        # Percent change always relative to native purchase currency
         avg_native = avg_cad if currency == "CAD" else avg_usd
         cp_native  = cp_cad  if currency == "CAD" else cp_usd
         pct = ((cp_native - avg_native) / avg_native * 100) if avg_native else 0
@@ -322,9 +334,9 @@ def get_portfolio():
             "ticker": s.ticker,
             "name": s.ticker.replace(".TO", ""),
             "shares": s.shares,
-            "avg_purchase_price": s.avg_purchase_price,  # in native currency
+            "avg_purchase_price": s.avg_purchase_price,
             "purchase_currency": currency,
-            "current_price": cp_cad if currency == "CAD" else cp_usd,  # native
+            "current_price": cp_cad if currency == "CAD" else cp_usd,
             "current_value_usd": cv_usd,
             "current_value_cad": cv_cad,
             "profit_loss_usd": pl_usd,
@@ -334,7 +346,6 @@ def get_portfolio():
         })
         total_stocks_usd += cv_usd
 
-    # --- crypto ---
     crypto_out, total_crypto_usd = [], 0.0
     for c in cryptos:
         cp = crypto_prices.get(c.coin_id, 0)
@@ -359,17 +370,15 @@ def get_portfolio():
     total_usd = total_stocks_usd + total_crypto_usd
     total_cad = total_usd * usd_to_cad
     watchlist_out = get_watchlist_data([w.ticker for w in watchlist_items], usd_to_cad)
-
-    # --- history snapshot (max once per hour per user) ---
     now = datetime.utcnow()
-    if total_usd > 0:
+
+    if persist_history and total_usd > 0:
         last = (PortfolioHistory.query
                 .filter_by(user_id=uid)
                 .order_by(PortfolioHistory.timestamp.desc())
                 .first())
         if not last or (now - last.timestamp).total_seconds() >= 3600:
-            db.session.add(PortfolioHistory(user_id=uid, timestamp=now,
-                                             value_usd=total_usd, value_cad=total_cad))
+            db.session.add(PortfolioHistory(user_id=uid, timestamp=now, value_usd=total_usd, value_cad=total_cad))
             cutoff = now - timedelta(days=90)
             PortfolioHistory.query.filter(
                 PortfolioHistory.user_id == uid,
@@ -382,7 +391,7 @@ def get_portfolio():
                .order_by(PortfolioHistory.timestamp)
                .all())
 
-    return jsonify({
+    return {
         "stocks": stocks_out,
         "crypto": crypto_out,
         "watchlist": watchlist_out,
@@ -402,7 +411,30 @@ def get_portfolio():
             for h in history
         ],
         "last_updated": now.isoformat(),
-    })
+    }
+
+
+@app.route("/")
+@login_required
+def index():
+    return render_template("index.html")
+
+
+@app.route("/api/portfolio")
+@login_required
+def get_portfolio():
+    return jsonify(_build_portfolio_payload(current_user.id, persist_history=True))
+
+
+@app.route("/api/portfolio/export")
+def export_portfolio():
+    _authorized_export_request()
+    owner = _portfolio_owner_for_export()
+    if not owner:
+        abort(404, description="No portfolio owner found")
+    payload = _build_portfolio_payload(owner.id, persist_history=False)
+    payload["owner"] = {"name": owner.name}
+    return jsonify(payload)
 
 
 # ── Stock routes ──────────────────────────────────────────────────────────────
