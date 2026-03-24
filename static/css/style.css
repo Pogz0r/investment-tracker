@@ -666,7 +666,14 @@ body.compact .user-avatar { width: 26px; height: 26px; }
   border: 1px solid var(--border);
 }
 
-/* remove button */
+/* row actions */
+.row-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+}
+
+.btn-action,
 .btn-remove {
   background: none;
   border: 1px solid var(--border);
@@ -680,6 +687,12 @@ body.compact .user-avatar { width: 26px; height: 26px; }
   letter-spacing: 0.05em;
   text-transform: uppercase;
   transition: all .15s;
+}
+
+.btn-action:hover {
+  border-color: var(--amber);
+  color: var(--amber);
+  background: var(--amber-dim);
 }
 
 .btn-remove:hover {

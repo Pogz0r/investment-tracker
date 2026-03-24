@@ -73,6 +73,31 @@ document.getElementById("openCryptoModal").addEventListener("click", () => {
   document.getElementById("cryptoForm").reset();
   openModal("cryptoModal");
 });
+
+function openEditStockModal(ticker) {
+  const stock = (lastData?.stocks || []).find((s) => s.ticker === ticker);
+  if (!stock) return;
+  document.getElementById('editStockError').textContent = '';
+  document.getElementById('editStockTicker').value = stock.ticker;
+  document.getElementById('editStockTickerDisplay').value = stock.name;
+  document.getElementById('editStockShares').value = stock.shares;
+  document.getElementById('editStockAvgPrice').value = stock.avg_purchase_price;
+  document.getElementById('editStockAvgPriceLabel').textContent = `Average Purchase Price (${stock.purchase_currency || 'USD'})`;
+  openModal('editStockModal');
+}
+window.openEditStockModal = openEditStockModal;
+
+function openEditCryptoModal(coinId) {
+  const crypto = (lastData?.crypto || []).find((c) => c.coin_id === coinId);
+  if (!crypto) return;
+  document.getElementById('editCryptoError').textContent = '';
+  document.getElementById('editCryptoCoinId').value = crypto.coin_id;
+  document.getElementById('editCryptoCoinName').value = crypto.name;
+  document.getElementById('editCryptoAmount').value = crypto.amount;
+  document.getElementById('editCryptoAvgPrice').value = crypto.avg_purchase_price;
+  openModal('editCryptoModal');
+}
+window.openEditCryptoModal = openEditCryptoModal;
 document.getElementById("openGoalModal").addEventListener("click", () => {
   document.getElementById("goalError").textContent = "";
   openModal("goalModal");
@@ -142,7 +167,7 @@ function renderStocks(stocks) {
       <td class="${plClass(s.profit_loss_usd)}">${fmtUsd(s.profit_loss_usd)}</td>
       <td class="${plClass(s.profit_loss_cad)}">${fmtCad(s.profit_loss_cad)}</td>
       <td>${pillHtml(s.percent_change)}</td>
-      <td><button class="btn-remove" onclick="removeStock('${s.ticker}')">Remove</button></td>
+      <td class="row-actions"><button class="btn-action btn-edit" onclick="openEditStockModal('${s.ticker}')">Edit</button><button class="btn-remove" onclick="removeStock('${s.ticker}')">Remove</button></td>
     </tr>`;
     })
     .join("");
@@ -167,7 +192,7 @@ function renderCrypto(crypto) {
       <td class="${plClass(c.profit_loss_usd)}">${fmtUsd(c.profit_loss_usd)}</td>
       <td class="${plClass(c.profit_loss_cad)}">${fmtCad(c.profit_loss_cad)}</td>
       <td>${pillHtml(c.percent_change)}</td>
-      <td><button class="btn-remove" onclick="removeCrypto('${c.coin_id}')">Remove</button></td>
+      <td class="row-actions"><button class="btn-action btn-edit" onclick="openEditCryptoModal('${c.coin_id}')">Edit</button><button class="btn-remove" onclick="removeCrypto('${c.coin_id}')">Remove</button></td>
     </tr>`
     )
     .join("");
@@ -506,6 +531,78 @@ document.getElementById("cryptoForm").addEventListener("submit", async (e) => {
   } finally {
     submitBtn.classList.remove("loading");
     submitBtn.textContent = "Add Crypto";
+  }
+});
+
+document.getElementById("editStockForm").addEventListener("submit", async (e) => {
+  e.preventDefault();
+  const errEl = document.getElementById("editStockError");
+  const submitBtn = document.getElementById("editStockSubmitBtn");
+  errEl.textContent = "";
+  submitBtn.classList.add("loading");
+  submitBtn.textContent = "Saving…";
+
+  const ticker = document.getElementById("editStockTicker").value;
+  const payload = {
+    shares: document.getElementById("editStockShares").value,
+    avg_purchase_price: document.getElementById("editStockAvgPrice").value,
+  };
+
+  try {
+    const res = await fetch(`/api/stocks/${ticker}`, {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(payload),
+    });
+    const data = await res.json();
+    if (!res.ok) {
+      errEl.textContent = data.error;
+    } else {
+      closeModal("editStockModal");
+      fetchPortfolio();
+      startCountdown();
+    }
+  } catch {
+    errEl.textContent = "Network error. Please try again.";
+  } finally {
+    submitBtn.classList.remove("loading");
+    submitBtn.textContent = "Save Changes";
+  }
+});
+
+document.getElementById("editCryptoForm").addEventListener("submit", async (e) => {
+  e.preventDefault();
+  const errEl = document.getElementById("editCryptoError");
+  const submitBtn = document.getElementById("editCryptoSubmitBtn");
+  errEl.textContent = "";
+  submitBtn.classList.add("loading");
+  submitBtn.textContent = "Saving…";
+
+  const coinId = document.getElementById("editCryptoCoinId").value;
+  const payload = {
+    amount: document.getElementById("editCryptoAmount").value,
+    avg_purchase_price: document.getElementById("editCryptoAvgPrice").value,
+  };
+
+  try {
+    const res = await fetch(`/api/crypto/${coinId}`, {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(payload),
+    });
+    const data = await res.json();
+    if (!res.ok) {
+      errEl.textContent = data.error;
+    } else {
+      closeModal("editCryptoModal");
+      fetchPortfolio();
+      startCountdown();
+    }
+  } catch {
+    errEl.textContent = "Network error. Please try again.";
+  } finally {
+    submitBtn.classList.remove("loading");
+    submitBtn.textContent = "Save Changes";
   }
 });
 

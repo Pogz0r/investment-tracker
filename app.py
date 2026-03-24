@@ -436,6 +436,29 @@ def add_stock():
                     "purchase_currency": purchase_currency})
 
 
+@app.route("/api/stocks/<ticker>", methods=["PUT"])
+@login_required
+def update_stock(ticker):
+    stock = Stock.query.filter_by(user_id=current_user.id, ticker=ticker.upper()).first()
+    if not stock:
+        return jsonify({"error": f"{ticker} not found"}), 404
+
+    body = request.json or {}
+    try:
+        shares = float(body.get("shares", stock.shares))
+        avg_price = float(body.get("avg_purchase_price", stock.avg_purchase_price))
+    except (TypeError, ValueError):
+        return jsonify({"error": "Shares and price must be numbers"}), 400
+
+    if shares <= 0 or avg_price <= 0:
+        return jsonify({"error": "Shares and purchase price must be greater than 0"}), 400
+
+    stock.shares = shares
+    stock.avg_purchase_price = avg_price
+    db.session.commit()
+    return jsonify({"message": f"{ticker} updated successfully"})
+
+
 @app.route("/api/stocks/<ticker>", methods=["DELETE"])
 @login_required
 def remove_stock(ticker):
@@ -478,6 +501,29 @@ def add_crypto():
                           amount=amount, avg_purchase_price=avg_price))
     db.session.commit()
     return jsonify({"message": f"{coin_name} added successfully"})
+
+
+@app.route("/api/crypto/<coin_id>", methods=["PUT"])
+@login_required
+def update_crypto(coin_id):
+    crypto = Crypto.query.filter_by(user_id=current_user.id, coin_id=coin_id.lower()).first()
+    if not crypto:
+        return jsonify({"error": f"{coin_id} not found"}), 404
+
+    body = request.json or {}
+    try:
+        amount = float(body.get("amount", crypto.amount))
+        avg_price = float(body.get("avg_purchase_price", crypto.avg_purchase_price))
+    except (TypeError, ValueError):
+        return jsonify({"error": "Amount and price must be numbers"}), 400
+
+    if amount <= 0 or avg_price <= 0:
+        return jsonify({"error": "Amount and purchase price must be greater than 0"}), 400
+
+    crypto.amount = amount
+    crypto.avg_purchase_price = avg_price
+    db.session.commit()
+    return jsonify({"message": f"{coin_id} updated successfully"})
 
 
 @app.route("/api/crypto/<coin_id>", methods=["DELETE"])

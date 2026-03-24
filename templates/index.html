@@ -215,6 +215,36 @@
     </div>
   </div>
 
+  <!-- Edit Stock -->
+  <div class="modal-overlay" id="editStockModal">
+    <div class="modal">
+      <div class="modal-header">
+        <h3>Edit Stock</h3>
+        <button class="modal-close" data-close="editStockModal">&times;</button>
+      </div>
+      <form id="editStockForm" autocomplete="off">
+        <input type="hidden" id="editStockTicker" />
+        <div class="form-group">
+          <label>Ticker Symbol</label>
+          <input type="text" id="editStockTickerDisplay" disabled />
+        </div>
+        <div class="form-group">
+          <label>Number of Shares</label>
+          <input type="number" id="editStockShares" min="0.0001" step="any" required />
+        </div>
+        <div class="form-group">
+          <label id="editStockAvgPriceLabel">Average Purchase Price (USD)</label>
+          <input type="number" id="editStockAvgPrice" min="0.0001" step="any" required />
+        </div>
+        <p class="form-error" id="editStockError"></p>
+        <div class="modal-actions">
+          <button type="button" class="btn btn-outline" data-close="editStockModal">Cancel</button>
+          <button type="submit" class="btn btn-primary" id="editStockSubmitBtn">Save Changes</button>
+        </div>
+      </form>
+    </div>
+  </div>
+
   <!-- Add Crypto -->
   <div class="modal-overlay" id="cryptoModal">
     <div class="modal">
@@ -244,6 +274,36 @@
         <div class="modal-actions">
           <button type="button" class="btn btn-outline" data-close="cryptoModal">Cancel</button>
           <button type="submit" class="btn btn-primary" id="cryptoSubmitBtn">Add Crypto</button>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <!-- Edit Crypto -->
+  <div class="modal-overlay" id="editCryptoModal">
+    <div class="modal">
+      <div class="modal-header">
+        <h3>Edit Crypto</h3>
+        <button class="modal-close" data-close="editCryptoModal">&times;</button>
+      </div>
+      <form id="editCryptoForm" autocomplete="off">
+        <input type="hidden" id="editCryptoCoinId" />
+        <div class="form-group">
+          <label>Coin</label>
+          <input type="text" id="editCryptoCoinName" disabled />
+        </div>
+        <div class="form-group">
+          <label>Amount Held</label>
+          <input type="number" id="editCryptoAmount" min="0.00000001" step="any" required />
+        </div>
+        <div class="form-group">
+          <label>Average Purchase Price (USD)</label>
+          <input type="number" id="editCryptoAvgPrice" min="0.0001" step="any" required />
+        </div>
+        <p class="form-error" id="editCryptoError"></p>
+        <div class="modal-actions">
+          <button type="button" class="btn btn-outline" data-close="editCryptoModal">Cancel</button>
+          <button type="submit" class="btn btn-primary" id="editCryptoSubmitBtn">Save Changes</button>
         </div>
       </form>
     </div>
