@@ -116,7 +116,11 @@ function applyCurrencyMode(mode) {
   document.querySelectorAll(".currency-opt").forEach((btn) => {
     btn.classList.toggle("active", btn.dataset.currency === mode);
   });
-  if (lastData) renderSummary(lastData);
+  if (lastData) {
+    renderSummary(lastData);
+    renderGoal(lastData.savings_goal, lastData.total_usd, lastData.total_cad, lastData.usd_to_cad);
+    renderLineChart(lastData.portfolio_history || []);
+  }
 }
 
 // Initialise toggle state from localStorage before first fetch
@@ -333,6 +337,9 @@ function renderPieChart(allHoldings) {
 function renderLineChart(history) {
   const lineEmpty = document.getElementById("lineEmpty");
   const canvas = document.getElementById("lineChart");
+  const cad = currencyMode === "CAD";
+  const fmtValue = cad ? fmtCad : fmtUsd;
+  const axisPrefix = cad ? "CA$" : "$";
 
   if (history.length < 2) {
     lineEmpty.style.display = "block";
@@ -347,11 +354,14 @@ function renderLineChart(history) {
     const d = new Date(h.timestamp + "Z");
     return d.toLocaleDateString("en-US", { month: "short", day: "numeric" });
   });
-  const values = history.map((h) => h.value_usd);
+  const values = history.map((h) => cad ? h.value_cad : h.value_usd);
 
   if (lineChart) {
     lineChart.data.labels = labels;
+    lineChart.data.datasets[0].label = `Portfolio Value (${cad ? "CAD" : "USD"})`;
     lineChart.data.datasets[0].data = values;
+    lineChart.options.plugins.tooltip.callbacks.label = (ctx) => ` ${fmtValue(ctx.parsed.y)}`;
+    lineChart.options.scales.y.ticks.callback = (v) => axisPrefix + (v >= 1000 ? (v / 1000).toFixed(1) + "k" : v);
     lineChart.update();
     return;
   }
@@ -360,7 +370,7 @@ function renderLineChart(history) {
     data: {
       labels,
       datasets: [{
-        label: "Portfolio Value (USD)",
+        label: `Portfolio Value (${cad ? "CAD" : "USD"})`,
         data: values,
         borderColor: "#00c87a",
         backgroundColor: "rgba(0,200,122,.05)",
@@ -379,7 +389,7 @@ function renderLineChart(history) {
         legend: { display: false },
         tooltip: {
           callbacks: {
-            label: (ctx) => ` ${fmtUsd(ctx.parsed.y)}`,
+            label: (ctx) => ` ${fmtValue(ctx.parsed.y)}`,
           },
         },
       },
@@ -390,7 +400,7 @@ function renderLineChart(history) {
           ticks: {
             color: "#3d4f63",
             font: { family: "'JetBrains Mono', monospace", size: 11 },
-            callback: (v) => "$" + (v >= 1000 ? (v / 1000).toFixed(1) + "k" : v),
+            callback: (v) => axisPrefix + (v >= 1000 ? (v / 1000).toFixed(1) + "k" : v),
           },
         },
       },
