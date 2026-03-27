@@ -156,7 +156,7 @@ def get_stock_prices(tickers: list[str]) -> dict:
     return prices
 
 
-def get_watchlist_data(tickers: list[str], usd_to_cad: float) -> list:
+def get_watchlist_data(tickers: list[str], usd_to_cad: float, usd_to_php: float) -> list:
     result = []
     for ticker in tickers:
         try:
@@ -173,6 +173,7 @@ def get_watchlist_data(tickers: list[str], usd_to_cad: float) -> list:
             "name": ticker.replace(".TO", ""),
             "current_price": price,
             "current_price_cad": price * usd_to_cad,
+            "current_price_php": price * usd_to_php,
             "day_change": day_change,
             "day_change_pct": day_change_pct,
         })
@@ -198,18 +199,20 @@ def get_crypto_prices(coin_ids: list[str]) -> dict:
         return {}
 
 
-def get_exchange_rate() -> float:
+def get_exchange_rates() -> tuple:
+    """Returns (usd_to_cad, usd_to_php)."""
     try:
         resp = requests.get(
             f"{FRANKFURTER_BASE_URL}/latest",
-            params={"from": "USD", "to": "CAD"},
+            params={"from": "USD", "to": "CAD,PHP"},
             timeout=10,
         )
         resp.raise_for_status()
-        return float(resp.json()["rates"]["CAD"])
+        rates = resp.json()["rates"]
+        return float(rates["CAD"]), float(rates["PHP"])
     except Exception as exc:
         print(f"[fx] {exc}")
-        return 1.37
+        return 1.37, 55.8  # fallback rates
 
 
 def _resolve_ticker(raw: str) -> Optional[str]:
@@ -304,7 +307,7 @@ def _build_portfolio_payload(uid: int, persist_history: bool = True):
 
     stock_prices = get_stock_prices([s.ticker for s in stocks])
     crypto_prices = get_crypto_prices([c.coin_id for c in cryptos])
-    usd_to_cad = get_exchange_rate()
+    usd_to_cad, usd_to_php = get_exchange_rates()
 
     stocks_out, total_stocks_usd = [], 0.0
     for s in stocks:
@@ -369,7 +372,8 @@ def _build_portfolio_payload(uid: int, persist_history: bool = True):
 
     total_usd = total_stocks_usd + total_crypto_usd
     total_cad = total_usd * usd_to_cad
-    watchlist_out = get_watchlist_data([w.ticker for w in watchlist_items], usd_to_cad)
+    total_php = total_usd * usd_to_php
+    watchlist_out = get_watchlist_data([w.ticker for w in watchlist_items], usd_to_cad, usd_to_php)
     now = datetime.utcnow()
 
     if persist_history and total_usd > 0:
@@ -397,11 +401,13 @@ def _build_portfolio_payload(uid: int, persist_history: bool = True):
         "watchlist": watchlist_out,
         "total_usd": total_usd,
         "total_cad": total_cad,
+        "total_php": total_php,
         "total_stocks_usd": total_stocks_usd,
         "total_stocks_cad": total_stocks_usd * usd_to_cad,
         "total_crypto_usd": total_crypto_usd,
         "total_crypto_cad": total_crypto_usd * usd_to_cad,
         "usd_to_cad": usd_to_cad,
+        "usd_to_php": usd_to_php,
         "savings_goal": {
             "target": goal.target if goal else 0,
             "currency": goal.currency if goal else "USD",

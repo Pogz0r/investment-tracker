@@ -24,6 +24,7 @@ const fmt = (n, digits = 2) =>
 
 const fmtUsd = (n) => "$" + fmt(n);
 const fmtCad = (n) => "CA$" + fmt(n);
+const fmtPhp = (n) => "\u20b1" + fmt(n);
 const fmtPct = (n) => (n >= 0 ? "+" : "") + fmt(n, 2) + "%";
 
 function plClass(n) {
@@ -118,7 +119,7 @@ function applyCurrencyMode(mode) {
   });
   if (lastData) {
     renderSummary(lastData);
-    renderGoal(lastData.savings_goal, lastData.total_usd, lastData.total_cad, lastData.usd_to_cad);
+    renderGoal(lastData.savings_goal, lastData.total_usd, lastData.total_cad, lastData.total_php, lastData.usd_to_cad, lastData.usd_to_php);
     renderLineChart(lastData.portfolio_history || []);
   }
 }
@@ -212,22 +213,24 @@ function renderSummary(data) {
   const totalPlPct = totalCost > 0 ? (totalPlUsd / totalCost) * 100 : 0;
 
   const cad = currencyMode === "CAD";
+  const php = currencyMode === "PHP";
 
   // Total Portfolio
-  document.getElementById("totalUsd").textContent = cad ? fmtCad(data.total_cad)         : fmtUsd(data.total_usd);
-  document.getElementById("totalCad").textContent = cad ? fmtUsd(data.total_usd)          : fmtCad(data.total_cad);
+  document.getElementById("totalUsd").textContent = php ? fmtPhp(data.total_php)         : cad ? fmtCad(data.total_cad)         : fmtUsd(data.total_usd);
+  document.getElementById("totalCad").textContent = php ? fmtUsd(data.total_usd)          : cad ? fmtUsd(data.total_usd)          : fmtCad(data.total_cad);
 
   // Stocks Value
-  document.getElementById("stocksUsd").textContent = cad ? fmtCad(data.total_stocks_cad) : fmtUsd(data.total_stocks_usd);
-  document.getElementById("stocksCad").textContent = cad ? fmtUsd(data.total_stocks_usd) : fmtCad(data.total_stocks_cad);
+  document.getElementById("stocksUsd").textContent = php ? fmtPhp(data.total_stocks_usd * (data.usd_to_php || 55.8)) : cad ? fmtCad(data.total_stocks_cad) : fmtUsd(data.total_stocks_usd);
+  document.getElementById("stocksCad").textContent = php ? fmtUsd(data.total_stocks_usd) : cad ? fmtUsd(data.total_stocks_usd) : fmtCad(data.total_stocks_cad);
 
   // Crypto Value
-  document.getElementById("cryptoUsd").textContent = cad ? fmtCad(data.total_crypto_cad) : fmtUsd(data.total_crypto_usd);
-  document.getElementById("cryptoCad").textContent = cad ? fmtUsd(data.total_crypto_usd) : fmtCad(data.total_crypto_cad);
+  document.getElementById("cryptoUsd").textContent = php ? fmtPhp(data.total_crypto_usd * (data.usd_to_php || 55.8)) : cad ? fmtCad(data.total_crypto_cad) : fmtUsd(data.total_crypto_usd);
+  document.getElementById("cryptoCad").textContent = php ? fmtUsd(data.total_crypto_usd) : cad ? fmtUsd(data.total_crypto_usd) : fmtCad(data.total_crypto_cad);
 
   // Total P&L — primary flips currency, secondary always shows %
   const plEl = document.getElementById("totalPl");
-  plEl.textContent = cad ? fmtCad(totalPlCad) : fmtUsd(totalPlUsd);
+  const plPhp = data.total_php ? data.total_php - (data.total_usd * (data.usd_to_php || 55.8)) : 0;
+  plEl.textContent = php ? fmtPhp(plPhp) : cad ? fmtCad(totalPlCad) : fmtUsd(totalPlUsd);
   plEl.className = "card-value " + plClass(totalPlUsd);
 
   const plPctEl = document.getElementById("totalPlPct");
@@ -235,7 +238,9 @@ function renderSummary(data) {
   plPctEl.className = "card-sub " + plClass(totalPlUsd);
 
   // FX
-  document.getElementById("fxRate").textContent = `USD/CAD: ${fmt(data.usd_to_cad, 4)}`;
+  const cadRate = fmt(data.usd_to_cad, 4);
+  const phpRate = fmt(data.usd_to_php || 55.8, 4);
+  document.getElementById("fxRate").textContent = php ? `USD/PHP: ${phpRate}` : `USD/CAD: ${cadRate}`;
 
   // timestamp
   const ts = new Date(data.last_updated + "Z");
@@ -243,36 +248,49 @@ function renderSummary(data) {
     "Updated " + ts.toLocaleTimeString();
 }
 
-function renderGoal(goal, totalUsd, totalCad, usdToCad) {
+function renderGoal(goal, totalUsd, totalCad, totalPhp, usdToCad, usdToPhp) {
   const { target, currency } = goal;
   if (!target) {
     document.getElementById("goalMeta").textContent = "Set a target to track your progress";
     document.getElementById("goalBar").style.width = "0%";
-    document.getElementById("goalCurrent").textContent = fmtUsd(totalUsd);
+    document.getElementById("goalCurrent").textContent = currencyMode === "PHP" ? fmtPhp(totalPhp || totalUsd * (usdToPhp || 55.8)) : currencyMode === "CAD" ? fmtCad(totalCad) : fmtUsd(totalUsd);
     document.getElementById("goalTarget").textContent = "Goal: not set";
     return;
   }
   const current = currency === "CAD" ? totalCad : totalUsd;
+  const currentPhp = totalPhp || totalUsd * (usdToPhp || 55.8);
   const pct = Math.min((current / target) * 100, 100);
-  const fmtFn = currency === "CAD" ? fmtCad : fmtUsd;
+  let fmtFn, displayCurrent, displayTarget;
+  if (currencyMode === "PHP") {
+    fmtFn = fmtPhp;
+    displayCurrent = currentPhp;
+    displayTarget = target * (usdToPhp || 55.8);
+  } else {
+    fmtFn = currency === "CAD" ? fmtCad : fmtUsd;
+    displayCurrent = current;
+    displayTarget = target;
+  }
   document.getElementById("goalBar").style.width = pct.toFixed(2) + "%";
   document.getElementById("goalMeta").textContent =
-    `${fmt(pct, 1)}% of your ${fmtFn(target)} ${currency} goal reached`;
-  document.getElementById("goalCurrent").textContent = fmtFn(current);
-  document.getElementById("goalTarget").textContent = `Goal: ${fmtFn(target)}`;
+    `${fmt(pct, 1)}% of your ${fmtFn(displayTarget)} ${currency} goal reached`;
+  document.getElementById("goalCurrent").textContent = fmtFn(displayCurrent);
+  document.getElementById("goalTarget").textContent = `Goal: ${fmtFn(displayTarget)}`;
 }
 
 function renderWatchlist(items) {
   const tbody = document.getElementById("watchlistBody");
   if (!items.length) {
-    tbody.innerHTML = '<tr class="empty-row"><td colspan="5">No tickers in watchlist yet</td></tr>';
+    tbody.innerHTML = '<tr class="empty-row"><td colspan="6">No tickers in watchlist yet</td></tr>';
     return;
   }
+  const php = currencyMode === "PHP";
+  const usdToPhp = lastData?.usd_to_php || 55.8;
   tbody.innerHTML = items.map((w) => `
     <tr>
       <td><span class="ticker-badge">${w.name}</span></td>
-      <td>${fmtUsd(w.current_price)}</td>
-      <td>${fmtCad(w.current_price_cad)}</td>
+      <td>${php ? fmtPhp(w.current_price * usdToPhp) : fmtUsd(w.current_price)}</td>
+      <td>${php ? fmtUsd(w.current_price) : fmtCad(w.current_price_cad)}</td>
+      ${php ? `<td>${fmtPhp((w.current_price_php || w.current_price * usdToPhp))}</td>` : ""}
       <td>${pillHtml(w.day_change_pct)}</td>
       <td><button class="btn-remove" onclick="removeWatchlistItem('${w.ticker}')">Remove</button></td>
     </tr>`).join("");
@@ -338,8 +356,11 @@ function renderLineChart(history) {
   const lineEmpty = document.getElementById("lineEmpty");
   const canvas = document.getElementById("lineChart");
   const cad = currencyMode === "CAD";
-  const fmtValue = cad ? fmtCad : fmtUsd;
-  const axisPrefix = cad ? "CA$" : "$";
+  const php = currencyMode === "PHP";
+  const usdToPhp = lastData?.usd_to_php || 55.8;
+  const fmtValue = php ? fmtPhp : cad ? fmtCad : fmtUsd;
+  const axisPrefix = php ? "\u20b1" : cad ? "CA$" : "$";
+  const currencyLabel = php ? "PHP" : cad ? "CAD" : "USD";
 
   if (history.length < 2) {
     lineEmpty.style.display = "block";
@@ -354,11 +375,11 @@ function renderLineChart(history) {
     const d = new Date(h.timestamp + "Z");
     return d.toLocaleDateString("en-US", { month: "short", day: "numeric" });
   });
-  const values = history.map((h) => cad ? h.value_cad : h.value_usd);
+  const values = history.map((h) => php ? h.value_usd * usdToPhp : cad ? h.value_cad : h.value_usd);
 
   if (lineChart) {
     lineChart.data.labels = labels;
-    lineChart.data.datasets[0].label = `Portfolio Value (${cad ? "CAD" : "USD"})`;
+    lineChart.data.datasets[0].label = `Portfolio Value (${currencyLabel})`;
     lineChart.data.datasets[0].data = values;
     lineChart.options.plugins.tooltip.callbacks.label = (ctx) => ` ${fmtValue(ctx.parsed.y)}`;
     lineChart.options.scales.y.ticks.callback = (v) => axisPrefix + (v >= 1000 ? (v / 1000).toFixed(1) + "k" : v);
@@ -370,7 +391,7 @@ function renderLineChart(history) {
     data: {
       labels,
       datasets: [{
-        label: `Portfolio Value (${cad ? "CAD" : "USD"})`,
+        label: `Portfolio Value (${currencyLabel})`,
         data: values,
         borderColor: "#00c87a",
         backgroundColor: "rgba(0,200,122,.05)",
