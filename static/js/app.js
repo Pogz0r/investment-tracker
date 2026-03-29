@@ -227,6 +227,10 @@ function renderSummary(data) {
   document.getElementById("cryptoUsd").textContent = php ? fmtPhp(data.total_crypto_usd * (data.usd_to_php || 55.8)) : cad ? fmtCad(data.total_crypto_cad) : fmtUsd(data.total_crypto_usd);
   document.getElementById("cryptoCad").textContent = php ? fmtUsd(data.total_crypto_usd) : cad ? fmtUsd(data.total_crypto_usd) : fmtCad(data.total_crypto_cad);
 
+  // Liquid Cash
+  document.getElementById("liquidCashCad").textContent = fmtCad(data.total_liquid_cad || 0);
+  document.getElementById("liquidCashUsd").textContent = fmtUsd(data.total_liquid_usd || 0);
+
   // Total P&L — primary flips currency, secondary always shows %
   const plEl = document.getElementById("totalPl");
   const plPhp = data.total_php ? data.total_php - (data.total_usd * (data.usd_to_php || 55.8)) : 0;
@@ -295,6 +299,42 @@ function renderWatchlist(items) {
       <td><button class="btn-remove" onclick="removeWatchlistItem('${w.ticker}')">Remove</button></td>
     </tr>`).join("");
 }
+
+function renderLiquidCash(entries, usdToCad) {
+  const tbody = document.getElementById("liquidCashBody");
+  if (!entries || !entries.length) {
+    tbody.innerHTML = '<tr class="empty-row"><td colspan="4">No cash entries yet</td></tr>';
+    return;
+  }
+  tbody.innerHTML = entries.map((e) => `
+    <tr>
+      <td><span class="ticker-badge">${e.label}</span></td>
+      <td>${fmtCad(e.amount)}</td>
+      <td>${fmtUsd(e.amount / usdToCad)}</td>
+      <td class="row-actions">
+        <button class="btn-action btn-edit" onclick="openEditLiquidCashModal(${e.id})">Edit</button>
+        <button class="btn-remove" onclick="removeLiquidCash(${e.id})">Remove</button>
+      </td>
+    </tr>`).join("");
+}
+
+function openEditLiquidCashModal(id) {
+  const entry = (lastData?.liquid_cash || []).find((e) => e.id === id);
+  if (!entry) return;
+  document.getElementById("editLiquidCashError").textContent = "";
+  document.getElementById("editLiquidCashId").value = entry.id;
+  document.getElementById("editLiquidCashLabel").value = entry.label;
+  document.getElementById("editLiquidCashAmount").value = entry.amount;
+  openModal("editLiquidCashModal");
+}
+window.openEditLiquidCashModal = openEditLiquidCashModal;
+
+async function removeLiquidCash(id) {
+  if (!confirm("Remove this cash entry?")) return;
+  await fetch(`/api/liquid-cash/${id}`, { method: "DELETE" });
+  fetchPortfolio();
+}
+window.removeLiquidCash = removeLiquidCash;
 
 // ── Chart.js palettes ──────────────────────────────────────────────────────
 
@@ -441,9 +481,13 @@ async function fetchPortfolio() {
     renderStocks(data.stocks);
     renderCrypto(data.crypto);
     renderWatchlist(data.watchlist || []);
+    renderLiquidCash(data.liquid_cash || [], data.usd_to_cad);
     renderGoal(data.savings_goal, data.total_usd, data.total_cad, data.usd_to_cad);
 
     const allHoldings = [...data.stocks, ...data.crypto];
+    if ((data.total_liquid_usd || 0) > 0) {
+      allHoldings.unshift({ name: "Liquid Cash", current_value_usd: data.total_liquid_usd, type: "cash" });
+    }
     renderPieChart(allHoldings);
     renderLineChart(data.portfolio_history || []);
   } catch (err) {
@@ -692,6 +736,81 @@ document.getElementById("watchlistForm").addEventListener("submit", async (e) =>
   } finally {
     submitBtn.classList.remove("loading");
     submitBtn.textContent = "Add to Watchlist";
+  }
+});
+
+document.getElementById("openLiquidCashModal").addEventListener("click", () => {
+  document.getElementById("liquidCashError").textContent = "";
+  document.getElementById("liquidCashForm").reset();
+  openModal("liquidCashModal");
+});
+
+document.getElementById("liquidCashForm").addEventListener("submit", async (e) => {
+  e.preventDefault();
+  const errEl = document.getElementById("liquidCashError");
+  const submitBtn = document.getElementById("liquidCashSubmitBtn");
+  errEl.textContent = "";
+  submitBtn.classList.add("loading");
+  submitBtn.textContent = "Adding…";
+
+  const payload = {
+    label: document.getElementById("liquidCashLabel").value,
+    amount: document.getElementById("liquidCashAmount").value,
+  };
+
+  try {
+    const res = await fetch("/api/liquid-cash", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(payload),
+    });
+    const data = await res.json();
+    if (!res.ok) {
+      errEl.textContent = data.error;
+    } else {
+      closeModal("liquidCashModal");
+      fetchPortfolio();
+    }
+  } catch {
+    errEl.textContent = "Network error. Please try again.";
+  } finally {
+    submitBtn.classList.remove("loading");
+    submitBtn.textContent = "Add Cash";
+  }
+});
+
+document.getElementById("editLiquidCashForm").addEventListener("submit", async (e) => {
+  e.preventDefault();
+  const errEl = document.getElementById("editLiquidCashError");
+  const submitBtn = document.getElementById("editLiquidCashSubmitBtn");
+  errEl.textContent = "";
+  submitBtn.classList.add("loading");
+  submitBtn.textContent = "Saving…";
+
+  const id = document.getElementById("editLiquidCashId").value;
+  const payload = {
+    label: document.getElementById("editLiquidCashLabel").value,
+    amount: document.getElementById("editLiquidCashAmount").value,
+  };
+
+  try {
+    const res = await fetch(`/api/liquid-cash/${id}`, {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(payload),
+    });
+    const data = await res.json();
+    if (!res.ok) {
+      errEl.textContent = data.error;
+    } else {
+      closeModal("editLiquidCashModal");
+      fetchPortfolio();
+    }
+  } catch {
+    errEl.textContent = "Network error. Please try again.";
+  } finally {
+    submitBtn.classList.remove("loading");
+    submitBtn.textContent = "Save Changes";
   }
 });
 

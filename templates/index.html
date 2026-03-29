@@ -63,6 +63,11 @@
         <div class="card-value" id="totalPl">$0.00</div>
         <div class="card-sub" id="totalPlPct">0.00%</div>
       </div>
+      <div class="card summary-card">
+        <div class="card-label">Liquid Cash</div>
+        <div class="card-value" id="liquidCashCad">CA$0.00</div>
+        <div class="card-sub" id="liquidCashUsd">$0.00</div>
+      </div>
     </section>
 
     <!-- ========== SAVINGS GOAL ========== -->
@@ -80,6 +85,29 @@
       <div class="progress-labels">
         <span id="goalCurrent">$0</span>
         <span id="goalTarget">Goal: $0</span>
+      </div>
+    </section>
+
+    <!-- ========== LIQUID CASH ========== -->
+    <section class="card holdings-card" id="liquidCashSection">
+      <div class="holdings-header">
+        <h2 class="section-title">Liquid Cash</h2>
+        <button class="btn btn-outline" id="openLiquidCashModal">+ Add Cash</button>
+      </div>
+      <div class="table-scroll">
+        <table class="holdings-table">
+          <thead>
+            <tr>
+              <th>Label</th>
+              <th>Amount (CAD)</th>
+              <th>Amount (USD)</th>
+              <th></th>
+            </tr>
+          </thead>
+          <tbody id="liquidCashBody">
+            <tr class="empty-row"><td colspan="4">No cash entries yet</td></tr>
+          </tbody>
+        </table>
       </div>
     </section>
 
@@ -356,6 +384,57 @@
         <div class="modal-actions">
           <button type="button" class="btn btn-outline" data-close="watchlistModal">Cancel</button>
           <button type="submit" class="btn btn-primary" id="watchlistSubmitBtn">Add to Watchlist</button>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <!-- Add Liquid Cash -->
+  <div class="modal-overlay" id="liquidCashModal">
+    <div class="modal">
+      <div class="modal-header">
+        <h3>Add Cash Entry</h3>
+        <button class="modal-close" data-close="liquidCashModal">&times;</button>
+      </div>
+      <form id="liquidCashForm" autocomplete="off">
+        <div class="form-group">
+          <label>Label</label>
+          <input type="text" id="liquidCashLabel" placeholder="e.g. Emergency Fund, Cash on Hand" required />
+        </div>
+        <div class="form-group">
+          <label>Amount (CAD)</label>
+          <input type="number" id="liquidCashAmount" placeholder="e.g. 3000" min="0.01" step="any" required />
+        </div>
+        <p class="form-error" id="liquidCashError"></p>
+        <div class="modal-actions">
+          <button type="button" class="btn btn-outline" data-close="liquidCashModal">Cancel</button>
+          <button type="submit" class="btn btn-primary" id="liquidCashSubmitBtn">Add Cash</button>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <!-- Edit Liquid Cash -->
+  <div class="modal-overlay" id="editLiquidCashModal">
+    <div class="modal">
+      <div class="modal-header">
+        <h3>Edit Cash Entry</h3>
+        <button class="modal-close" data-close="editLiquidCashModal">&times;</button>
+      </div>
+      <form id="editLiquidCashForm" autocomplete="off">
+        <input type="hidden" id="editLiquidCashId" />
+        <div class="form-group">
+          <label>Label</label>
+          <input type="text" id="editLiquidCashLabel" placeholder="e.g. Emergency Fund" required />
+        </div>
+        <div class="form-group">
+          <label>Amount (CAD)</label>
+          <input type="number" id="editLiquidCashAmount" placeholder="e.g. 3000" min="0.01" step="any" required />
+        </div>
+        <p class="form-error" id="editLiquidCashError"></p>
+        <div class="modal-actions">
+          <button type="button" class="btn btn-outline" data-close="editLiquidCashModal">Cancel</button>
+          <button type="submit" class="btn btn-primary" id="editLiquidCashSubmitBtn">Save Changes</button>
         </div>
       </form>
     </div>

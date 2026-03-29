@@ -104,6 +104,13 @@ class SavingsGoal(db.Model):
     currency = db.Column(db.String(3), default="USD")
 
 
+class LiquidCash(db.Model):
+    id = db.Column(db.Integer, primary_key=True)
+    user_id = db.Column(db.Integer, db.ForeignKey("user.id"), nullable=False)
+    amount = db.Column(db.Float, nullable=False)
+    label = db.Column(db.String(100), nullable=False, default="Cash on Hand")
+
+
 class PortfolioHistory(db.Model):
     id = db.Column(db.Integer, primary_key=True)
     user_id = db.Column(db.Integer, db.ForeignKey("user.id"), nullable=False)
@@ -304,6 +311,7 @@ def _build_portfolio_payload(uid: int, persist_history: bool = True):
     cryptos = Crypto.query.filter_by(user_id=uid).all()
     watchlist_items = WatchlistItem.query.filter_by(user_id=uid).all()
     goal = SavingsGoal.query.filter_by(user_id=uid).first()
+    liquid_cash_entries = LiquidCash.query.filter_by(user_id=uid).all()
 
     stock_prices = get_stock_prices([s.ticker for s in stocks])
     crypto_prices = get_crypto_prices([c.coin_id for c in cryptos])
@@ -370,7 +378,11 @@ def _build_portfolio_payload(uid: int, persist_history: bool = True):
         })
         total_crypto_usd += cv
 
-    total_usd = total_stocks_usd + total_crypto_usd
+    # Liquid cash is stored in CAD; convert to USD
+    total_liquid_cad = sum(e.amount for e in liquid_cash_entries)
+    total_liquid_usd = total_liquid_cad / usd_to_cad if usd_to_cad else 0
+
+    total_usd = total_stocks_usd + total_crypto_usd + total_liquid_usd
     total_cad = total_usd * usd_to_cad
     total_php = total_usd * usd_to_php
     watchlist_out = get_watchlist_data([w.ticker for w in watchlist_items], usd_to_cad, usd_to_php)
@@ -399,6 +411,10 @@ def _build_portfolio_payload(uid: int, persist_history: bool = True):
         "stocks": stocks_out,
         "crypto": crypto_out,
         "watchlist": watchlist_out,
+        "liquid_cash": [
+            {"id": e.id, "amount": e.amount, "label": e.label}
+            for e in liquid_cash_entries
+        ],
         "total_usd": total_usd,
         "total_cad": total_cad,
         "total_php": total_php,
@@ -406,6 +422,8 @@ def _build_portfolio_payload(uid: int, persist_history: bool = True):
         "total_stocks_cad": total_stocks_usd * usd_to_cad,
         "total_crypto_usd": total_crypto_usd,
         "total_crypto_cad": total_crypto_usd * usd_to_cad,
+        "total_liquid_usd": total_liquid_usd,
+        "total_liquid_cad": total_liquid_cad,
         "usd_to_cad": usd_to_cad,
         "usd_to_php": usd_to_php,
         "savings_goal": {
@@ -591,6 +609,59 @@ def update_savings_goal():
         db.session.add(SavingsGoal(user_id=current_user.id, target=target, currency=currency))
     db.session.commit()
     return jsonify({"message": "Savings goal updated"})
+
+
+# ── Liquid cash routes ────────────────────────────────────────────────────────
+
+@app.route("/api/liquid-cash", methods=["POST"])
+@login_required
+def add_liquid_cash():
+    body = request.json or {}
+    try:
+        amount = float(body.get("amount", 0))
+    except (TypeError, ValueError):
+        return jsonify({"error": "Amount must be a number"}), 400
+    label = (body.get("label") or "").strip() or "Cash on Hand"
+
+    if amount <= 0:
+        return jsonify({"error": "Amount must be greater than 0"}), 400
+
+    db.session.add(LiquidCash(user_id=current_user.id, amount=amount, label=label))
+    db.session.commit()
+    return jsonify({"message": f"{label} added successfully"})
+
+
+@app.route("/api/liquid-cash/<int:entry_id>", methods=["PUT"])
+@login_required
+def update_liquid_cash(entry_id):
+    entry = LiquidCash.query.filter_by(id=entry_id, user_id=current_user.id).first()
+    if not entry:
+        return jsonify({"error": "Entry not found"}), 404
+
+    body = request.json or {}
+    try:
+        amount = float(body.get("amount", entry.amount))
+    except (TypeError, ValueError):
+        return jsonify({"error": "Amount must be a number"}), 400
+
+    if amount <= 0:
+        return jsonify({"error": "Amount must be greater than 0"}), 400
+
+    entry.amount = amount
+    entry.label = (body.get("label") or "").strip() or entry.label
+    db.session.commit()
+    return jsonify({"message": "Entry updated successfully"})
+
+
+@app.route("/api/liquid-cash/<int:entry_id>", methods=["DELETE"])
+@login_required
+def delete_liquid_cash(entry_id):
+    entry = LiquidCash.query.filter_by(id=entry_id, user_id=current_user.id).first()
+    if not entry:
+        return jsonify({"error": "Entry not found"}), 404
+    db.session.delete(entry)
+    db.session.commit()
+    return jsonify({"message": "Entry deleted"})
 
 
 # ── Watchlist routes ──────────────────────────────────────────────────────────
