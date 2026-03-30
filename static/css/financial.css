@@ -1,0 +1,165 @@
+/* ============================================================
+   FINANCIAL PAGE — additional styles
+   ============================================================ */
+
+/* Header nav */
+.header-nav {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.nav-tab {
+  padding: 5px 14px;
+  border-radius: var(--radius-sm);
+  font-family: var(--font-ui);
+  font-size: .74rem;
+  font-weight: 700;
+  letter-spacing: 0.07em;
+  text-transform: uppercase;
+  color: var(--text-sub);
+  text-decoration: none;
+  transition: all .2s;
+  border: 1px solid transparent;
+}
+
+.nav-tab:hover {
+  color: var(--text);
+  background: var(--bg-hover);
+}
+
+.nav-tab--active {
+  color: var(--amber);
+  background: var(--amber-dim);
+  border-color: rgba(212, 137, 10, 0.25);
+}
+
+/* Summary grid — slightly different labels for financial page */
+.summary-grid .card:nth-child(1) { animation-delay: 0.06s; }
+.summary-grid .card:nth-child(2) { animation-delay: 0.12s; }
+.summary-grid .card:nth-child(3) { animation-delay: 0.18s; }
+.summary-grid .card:nth-child(4) { animation-delay: 0.24s; }
+.summary-grid .card:nth-child(5) { animation-delay: 0.30s; }
+
+/* Chart section */
+.chart-card {
+  animation-delay: 0.36s;
+}
+
+.chart-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 18px;
+}
+
+.chart-wrap--bar {
+  height: 240px;
+  position: relative;
+}
+
+/* Upload section */
+.upload-card {
+  animation-delay: 0.40s;
+}
+
+.upload-header {
+  margin-bottom: 18px;
+}
+
+.upload-grid {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 14px;
+}
+
+.upload-box {
+  border: 1px dashed var(--border);
+  border-radius: var(--radius-sm);
+  padding: 24px 18px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+  text-align: center;
+  transition: border-color .2s, background .2s;
+}
+
+.upload-box:hover {
+  border-color: rgba(212, 137, 10, 0.35);
+  background: rgba(212, 137, 10, 0.03);
+}
+
+.upload-icon {
+  font-size: 2rem;
+  line-height: 1;
+}
+
+.upload-label {
+  font-family: var(--font-ui);
+  font-size: .82rem;
+  font-weight: 700;
+  color: var(--text);
+  letter-spacing: 0.01em;
+}
+
+.upload-hint {
+  font-family: var(--font-ui);
+  font-size: .70rem;
+  color: var(--text-muted);
+  letter-spacing: 0.01em;
+}
+
+.upload-btn {
+  margin-top: 4px;
+  font-size: .68rem;
+}
+
+.upload-status {
+  font-family: var(--font-ui);
+  font-size: .72rem;
+  color: var(--green);
+  min-height: 18px;
+  text-align: center;
+}
+
+.upload-status.error {
+  color: var(--red);
+}
+
+/* Category pill */
+.cat-pill {
+  display: inline-block;
+  padding: 2px 8px;
+  border-radius: 5px;
+  font-family: var(--font-mono);
+  font-size: .70rem;
+  font-weight: 600;
+  letter-spacing: 0.01em;
+  background: var(--bg-card-alt);
+  color: var(--text-sub);
+  border: 1px solid var(--border);
+}
+
+.cat-groceries { background: rgba(0, 200, 122, 0.08); color: #00c87a; border-color: rgba(0, 200, 122, 0.2); }
+.cat-gas       { background: rgba(77, 158, 255, 0.08); color: #4d9eff; border-color: rgba(77, 158, 255, 0.2); }
+.cat-subscriptions { background: rgba(167, 139, 250, 0.08); color: #a78bfa; border-color: rgba(167, 139, 250, 0.2); }
+.cat-dining    { background: rgba(212, 137, 10, 0.08); color: var(--amber-bright); border-color: rgba(212, 137, 10, 0.2); }
+.cat-utilities { background: rgba(77, 158, 255, 0.08); color: #60a5fa; border-color: rgba(77, 158, 255, 0.2); }
+.cat-insurance { background: rgba(0, 200, 122, 0.08); color: #00d97e; border-color: rgba(0, 200, 122, 0.2); }
+.cat-other     { background: var(--bg-card-alt); color: var(--text-sub); border-color: var(--border); }
+
+/* Income entries table */
+.income-sub { font-size: .68rem; color: var(--text-muted); font-family: var(--font-mono); }
+
+/* Responsive */
+@media (max-width: 780px) {
+  .upload-grid { grid-template-columns: 1fr; }
+  .summary-grid { grid-template-columns: repeat(2, 1fr); }
+}
+
+@media (max-width: 500px) {
+  .summary-grid { grid-template-columns: 1fr; }
+  .header-nav { gap: 2px; }
+  .nav-tab { padding: 4px 10px; font-size: .68rem; }
+}

@@ -119,6 +119,28 @@ class PortfolioHistory(db.Model):
     value_cad = db.Column(db.Float)
 
 
+class IncomeEntry(db.Model):
+    id = db.Column(db.Integer, primary_key=True)
+    user_id = db.Column(db.Integer, db.ForeignKey("user.id"), nullable=False)
+    pay_date = db.Column(db.Date, nullable=False)
+    employer = db.Column(db.String(256), nullable=False)
+    gross_income = db.Column(db.Float, nullable=False)
+    net_income = db.Column(db.Float, nullable=False)
+    deductions = db.Column(db.JSON, nullable=True)
+    created_at = db.Column(db.DateTime, default=datetime.utcnow)
+
+
+class Transaction(db.Model):
+    id = db.Column(db.Integer, primary_key=True)
+    user_id = db.Column(db.Integer, db.ForeignKey("user.id"), nullable=False)
+    date = db.Column(db.Date, nullable=False)
+    description = db.Column(db.String(512), nullable=False)
+    amount = db.Column(db.Float, nullable=False)
+    category = db.Column(db.String(64), nullable=False, default="other")
+    source = db.Column(db.String(32), nullable=False, default="manual")
+    created_at = db.Column(db.DateTime, default=datetime.utcnow)
+
+
 @login_manager.user_loader
 def load_user(user_id):
     return db.session.get(User, int(user_id))
@@ -458,6 +480,34 @@ def export_portfolio():
         abort(404, description="No portfolio owner found")
     payload = _build_portfolio_payload(owner.id, persist_history=False)
     payload["owner"] = {"name": owner.name}
+
+    # Optionally include financial summary
+    include_financial = request.headers.get("X-Include-Financial", "").lower() in ("1", "true", "yes")
+    if include_financial:
+        today = datetime.utcnow().date()
+        six_months_ago = datetime(today.year - (today.month <= 6 and 1 or 0),
+                                   ((today.month - 6 - 1) % 12) + 1, 1).date()
+        uid = owner.id
+
+        income_entries = IncomeEntry.query.filter(
+            IncomeEntry.user_id == uid, IncomeEntry.pay_date >= six_months_ago
+        ).all()
+        transactions = Transaction.query.filter(
+            Transaction.user_id == uid, Transaction.date >= six_months_ago, Transaction.amount < 0
+        ).all()
+
+        total_gross = sum(e.gross_income for e in income_entries)
+        total_net = sum(e.net_income for e in income_entries)
+        total_expenses = sum(abs(t.amount) for t in transactions)
+        savings_rate = ((total_net - total_expenses) / total_net * 100) if total_net else 0.0
+
+        payload["financial"] = {
+            "monthly_income_avg": round(total_gross / 6, 2) if total_gross else 0.0,
+            "monthly_expense_avg": round(total_expenses / 6, 2) if total_expenses else 0.0,
+            "savings_rate": round(savings_rate, 1),
+            "transaction_count": Transaction.query.filter_by(user_id=uid).count(),
+        }
+
     return jsonify(payload)
 
 
@@ -692,6 +742,482 @@ def remove_watchlist(ticker):
     WatchlistItem.query.filter_by(user_id=current_user.id, ticker=ticker.upper()).delete()
     db.session.commit()
     return jsonify({"message": f"{ticker} removed from watchlist"})
+
+
+# ── Financial routes ─────────────────────────────────────────────────────────
+
+CATEGORY_KEYWORDS = {
+    "groceries": ["grocery", "supermarket", "food", "walmart", "costco", "loblaws", "metro", "no frills", "shopify"],
+    "gas": ["gas", "petrol", "shell", "esso", "petro", "fuel", "couche-tard"],
+    "subscriptions": ["netflix", "spotify", "apple", "google", "amazon prime", "disney", "hulu", "disney+", "gym", "subscription"],
+    "dining": ["restaurant", "cafe", "coffee", "tim horton", "starbucks", "mcdonald", "burger", "pizza", "dining", "doordash", "uber eats"],
+    "utilities": ["hydro", "water", "gas", "electric", "utility", "bell", "rogers", "telus", "internet"],
+    "insurance": ["insurance", "manulife", "sunlife", "blue cross", "ia insurance"],
+    "other": [],
+}
+
+
+def _auto_categorize(description: str) -> str:
+    desc_lower = description.lower()
+    for cat, keywords in CATEGORY_KEYWORDS.items():
+        if cat == "other":
+            continue
+        for kw in keywords:
+            if kw in desc_lower:
+                return cat
+    return "other"
+
+
+def _parse_pay_stub(file_stream, filename: str) -> dict:
+    """Attempt to extract employer, pay_date, gross_income, net_income from a PDF."""
+    import pdfplumber
+
+    extracted = {"employer": "", "pay_date": "", "gross_income": 0.0, "net_income": 0.0, "deductions": {}}
+
+    try:
+        with pdfplumber.open(file_stream) as pdf:
+            text = ""
+            for page in pdf.pages:
+                t = page.extract_text() or ""
+                text += t + "\n"
+    except Exception:
+        return extracted
+
+    lines = text.split("\n")
+    for line in lines:
+        line_stripped = line.strip()
+        # Employer heuristics
+        if not extracted["employer"] and len(line_stripped) > 2 and len(line_stripped) < 80:
+            if any(w in line_stripped.lower() for w in ["inc", "ltd", "llc", "corp", "motor", "transport", "logistics"]):
+                extracted["employer"] = line_stripped[:100]
+
+        # Gross income
+        import re
+        gross_match = re.search(r"gross\s*(?:pay|income|amount)?[:\s]*\$?\s*([\d,]+\.?\d*)", line_stripped, re.IGNORECASE)
+        if gross_match and not extracted["gross_income"]:
+            try:
+                extracted["gross_income"] = float(gross_match.group(1).replace(",", ""))
+            except ValueError:
+                pass
+
+        # Net income
+        net_match = re.search(r"net\s*(?:pay|income|amount|earnings)?[:\s]*\$?\s*([\d,]+\.?\d*)", line_stripped, re.IGNORECASE)
+        if net_match and not extracted["net_income"]:
+            try:
+                extracted["net_income"] = float(net_match.group(1).replace(",", ""))
+            except ValueError:
+                pass
+
+        # Pay date
+        date_match = re.search(r"(\d{1,2}[-/]\d{1,2}[-/]\d{2,4})", line_stripped)
+        if date_match and not extracted["pay_date"]:
+            extracted["pay_date"] = date_match.group(1)
+
+    return extracted
+
+
+def _parse_bank_statement(file_stream, filename: str) -> list:
+    """Attempt to extract transactions from a CSV or PDF bank statement."""
+    import pdfplumber
+    import re
+
+    transactions = []
+
+    # Try CSV first
+    file_stream.seek(0)
+    content = file_stream.read()
+    if b"," in content or b"\t" in content:
+        try:
+            text = content.decode("utf-8", errors="ignore")
+            for line in text.split("\n"):
+                parts = [p.strip().strip('"') for p in re.split(r"[,;\t]", line)]
+                if len(parts) < 2:
+                    continue
+                # Look for date, description, amount pattern
+                amt_match = None
+                for p in parts:
+                    m = re.search(r"-?\$?([\d,]+\.?\d*)", p)
+                    if m:
+                        amt_str = m.group(1).replace(",", "")
+                        try:
+                            val = float(amt_str)
+                            if val > 0:
+                                amt_match = -val  # bank debits are expenses
+                            else:
+                                amt_match = val
+                            break
+                        except ValueError:
+                            pass
+                if amt_match is not None:
+                    desc = parts[1] if len(parts) > 1 else parts[0]
+                    date_str = parts[0] if len(parts) > 0 else ""
+                    if len(desc) > 2 and len(desc) < 200:
+                        try:
+                            trans_date = datetime.strptime(date_str[:10], "%Y-%m-%d").date() if "-" in date_str else datetime.today().date()
+                        except ValueError:
+                            trans_date = datetime.today().date()
+                        transactions.append({
+                            "date": trans_date.isoformat(),
+                            "description": desc[:200],
+                            "amount": round(amt_match, 2),
+                            "category": _auto_categorize(desc),
+                        })
+            return transactions
+        except Exception:
+            pass
+
+    # Try PDF
+    file_stream.seek(0)
+    try:
+        with pdfplumber.open(file_stream) as pdf:
+            text = ""
+            for page in pdf.pages:
+                text += (page.extract_text() or "") + "\n"
+    except Exception:
+        return transactions
+
+    # Extract date + description + amount rows
+    lines = text.split("\n")
+    for line in lines:
+        line_s = line.strip()
+        if len(line_s) < 5:
+            continue
+        # Look for lines with dates (YYYY-MM-DD or MM/DD/YYYY)
+        date_m = re.search(r"(\d{4}[-/]\d{1,2}[-/]\d{1,2}|\d{1,2}[-/]\d{1,2}[-/]\d{2,4})", line_s)
+        amt_m = re.search(r"-?\$?\s*([\d,]+\.\d{2})\b", line_s)
+        if date_m and amt_m:
+            try:
+                raw_date = date_m.group(1)
+                for fmt in ("%Y-%m-%d", "%m/%d/%Y", "%d/%m/%Y", "%Y/%m/%d", "%m-%d-%Y", "%d-%m-%Y"):
+                    try:
+                        trans_date = datetime.strptime(raw_date, fmt).date()
+                        break
+                    except ValueError:
+                        continue
+                else:
+                    trans_date = datetime.today().date()
+                raw_amt = amt_m.group(1).replace(",", "")
+                amount = round(float(raw_amt), 2)
+                # Remove the date and amount parts from the description
+                remaining = re.sub(r"(\d{4}[-/]\d{1,2}[-/]\d{1,2}|\d{1,2}[-/]\d{1,2}[-/]\d{2,4})", "", line_s)
+                remaining = re.sub(r"-?\$?\s*[\d,]+\.\d{2}", "", remaining)
+                remaining = re.sub(r"^\s*[-_.*|]+\s*", "", remaining)
+                desc = remaining.strip()[:200]
+                if desc and len(desc) > 2:
+                    transactions.append({
+                        "date": trans_date.isoformat(),
+                        "description": desc,
+                        "amount": amount,
+                        "category": _auto_categorize(desc),
+                    })
+            except (ValueError, IndexError):
+                pass
+
+    return transactions
+
+
+@app.route("/financial")
+@login_required
+def financial():
+    return render_template("financial.html")
+
+
+@app.route("/api/financial/upload", methods=["POST"])
+@login_required
+def financial_upload():
+    file = request.files.get("file")
+    upload_type = request.form.get("type", "manual")
+
+    if not file:
+        return jsonify({"error": "No file provided"}), 400
+
+    filename = file.filename or ""
+
+    if upload_type == "pay_stub":
+        extracted = _parse_pay_stub(file.stream, filename)
+
+        # Fallback: if nothing was extracted, return raw data so user can fill in
+        if not extracted["employer"] and extracted["gross_income"] == 0:
+            extracted["_parse_failed"] = True
+            return jsonify({"type": "pay_stub", "data": extracted, "raw_preview": "Could not auto-parse. Please fill in manually."}), 200
+
+        # Store the entry directly
+        pay_date = datetime.today().date()
+        if extracted["pay_date"]:
+            for fmt in ("%m/%d/%Y", "%d/%m/%Y", "%m-%d-%Y", "%d-%m-%Y"):
+                try:
+                    pay_date = datetime.strptime(extracted["pay_date"], fmt).date()
+                    break
+                except ValueError:
+                    pass
+
+        entry = IncomeEntry(
+            user_id=current_user.id,
+            pay_date=pay_date,
+            employer=extracted["employer"] or "Unknown Employer",
+            gross_income=extracted["gross_income"],
+            net_income=extracted["net_income"] or extracted["gross_income"],
+            deductions=extracted.get("deductions") or {},
+        )
+        db.session.add(entry)
+        db.session.commit()
+        return jsonify({"message": "Pay stub saved", "entry": {
+            "id": entry.id,
+            "employer": entry.employer,
+            "pay_date": entry.pay_date.isoformat(),
+            "gross_income": entry.gross_income,
+            "net_income": entry.net_income,
+        }}), 200
+
+    elif upload_type == "bank_statement":
+        transactions = _parse_bank_statement(file.stream, filename)
+
+        if not transactions:
+            return jsonify({"type": "bank_statement", "data": [], "raw_preview": "Could not auto-parse. Please add transactions manually."}), 200
+
+        saved = []
+        for t in transactions:
+            entry = Transaction(
+                user_id=current_user.id,
+                date=datetime.strptime(t["date"], "%Y-%m-%d").date(),
+                description=t["description"],
+                amount=t["amount"],
+                category=t.get("category", "other"),
+                source="bank_statement",
+            )
+            db.session.add(entry)
+            saved.append(entry)
+
+        db.session.commit()
+        return jsonify({"message": f"{len(saved)} transactions imported", "count": len(saved)}), 200
+
+    return jsonify({"error": "Invalid upload type"}), 400
+
+
+@app.route("/api/financial/entries", methods=["GET", "POST"])
+@login_required
+def financial_entries():
+    if request.method == "POST":
+        body = request.json or {}
+        try:
+            pay_date = datetime.strptime(body.get("pay_date", ""), "%Y-%m-%d").date()
+            gross = float(body.get("gross_income", 0))
+            net = float(body.get("net_income", 0))
+        except (ValueError, TypeError):
+            return jsonify({"error": "Invalid data"}), 400
+
+        if gross <= 0 or net <= 0:
+            return jsonify({"error": "Amounts must be positive"}), 400
+
+        entry = IncomeEntry(
+            user_id=current_user.id,
+            pay_date=pay_date,
+            employer=body.get("employer", "Unknown"),
+            gross_income=gross,
+            net_income=net,
+            deductions=body.get("deductions") or {},
+        )
+        db.session.add(entry)
+        db.session.commit()
+        return jsonify({"message": "Income entry added", "entry": {
+            "id": entry.id,
+            "employer": entry.employer,
+            "pay_date": entry.pay_date.isoformat(),
+            "gross_income": entry.gross_income,
+            "net_income": entry.net_income,
+        }}), 201
+
+    entries = (IncomeEntry.query
+               .filter_by(user_id=current_user.id)
+               .order_by(IncomeEntry.pay_date.desc())
+               .all())
+    return jsonify([{
+        "id": e.id,
+        "employer": e.employer,
+        "pay_date": e.pay_date.isoformat(),
+        "gross_income": e.gross_income,
+        "net_income": e.net_income,
+        "deductions": e.deductions or {},
+        "created_at": e.created_at.isoformat() if e.created_at else None,
+    } for e in entries])
+
+
+@app.route("/api/financial/transactions", methods=["GET", "POST"])
+@login_required
+def financial_transactions():
+    if request.method == "POST":
+        body = request.json or {}
+        try:
+            trans_date = datetime.strptime(body.get("date", ""), "%Y-%m-%d").date()
+            amount = float(body.get("amount", 0))
+        except (ValueError, TypeError):
+            return jsonify({"error": "Invalid data"}), 400
+
+        entry = Transaction(
+            user_id=current_user.id,
+            date=trans_date,
+            description=body.get("description", "").strip()[:512],
+            amount=amount,
+            category=body.get("category", "other"),
+            source="manual",
+        )
+        db.session.add(entry)
+        db.session.commit()
+        return jsonify({"message": "Transaction added", "transaction": {
+            "id": entry.id,
+            "date": entry.date.isoformat(),
+            "description": entry.description,
+            "amount": entry.amount,
+            "category": entry.category,
+        }}), 201
+
+    # GET with optional pagination
+    page = request.args.get("page", 1, type=int)
+    per_page = request.args.get("per_page", 50, type=int)
+    page = max(1, page)
+    per_page = min(200, max(1, per_page))
+
+    query = Transaction.query.filter_by(user_id=current_user.id)
+    total = query.count()
+    entries = (query.order_by(Transaction.date.desc())
+               .offset((page - 1) * per_page)
+               .limit(per_page)
+               .all())
+    return jsonify({
+        "transactions": [{
+            "id": t.id,
+            "date": t.date.isoformat(),
+            "description": t.description,
+            "amount": t.amount,
+            "category": t.category,
+            "source": t.source,
+        } for t in entries],
+        "total": total,
+        "page": page,
+        "per_page": per_page,
+    })
+
+
+@app.route("/api/financial/summary", methods=["GET"])
+@login_required
+def financial_summary():
+    """Monthly income, expenses, savings rate for current user."""
+    uid = current_user.id
+    today = datetime.utcnow().date()
+    six_months_ago = datetime(today.year - (today.month <= 6 and 1 or 0),
+                               ((today.month - 6 - 1) % 12) + 1, 1).date()
+
+    # Monthly income (last 6 months)
+    income_entries = (IncomeEntry.query
+                      .filter(IncomeEntry.user_id == uid,
+                              IncomeEntry.pay_date >= six_months_ago)
+                      .order_by(IncomeEntry.pay_date.desc())
+                      .all())
+
+    monthly_income = {}
+    for e in income_entries:
+        key = (e.pay_date.year, e.pay_date.month)
+        if key not in monthly_income:
+            monthly_income[key] = {"gross": 0.0, "net": 0.0, "count": 0}
+        monthly_income[key]["gross"] += e.gross_income
+        monthly_income[key]["net"] += e.net_income
+        monthly_income[key]["count"] += 1
+
+    # Monthly expenses (last 6 months)
+    transactions = (Transaction.query
+                    .filter(Transaction.user_id == uid,
+                            Transaction.date >= six_months_ago,
+                            Transaction.amount < 0)
+                    .order_by(Transaction.date.desc())
+                    .all())
+
+    monthly_expenses = {}
+    category_totals = {}
+    for t in transactions:
+        key = (t.date.year, t.date.month)
+        if key not in monthly_expenses:
+            monthly_expenses[key] = 0.0
+        monthly_expenses[key] += abs(t.amount)
+        category_totals[t.category] = category_totals.get(t.category, 0.0) + abs(t.amount)
+
+    # Build last-6-months series
+    months = []
+    cur_year, cur_month = today.year, today.month
+    for _ in range(6):
+        months.insert(0, (cur_year, cur_month))
+        cur_month -= 1
+        if cur_month == 0:
+            cur_month = 12
+            cur_year -= 1
+
+    monthly_series = []
+    total_gross = 0.0
+    total_net = 0.0
+    total_expenses = 0.0
+
+    for (yr, mo) in months:
+        gross = monthly_income.get((yr, mo), {}).get("gross", 0.0)
+        net = monthly_income.get((yr, mo), {}).get("net", 0.0)
+        exp = monthly_expenses.get((yr, mo), 0.0)
+        total_gross += gross
+        total_net += net
+        total_expenses += exp
+        savings = net - exp
+        rate = (savings / net * 100) if net > 0 else 0.0
+        monthly_series.append({
+            "year": yr,
+            "month": mo,
+            "label": datetime(yr, mo, 1).strftime("%b %Y"),
+            "gross_income": round(gross, 2),
+            "net_income": round(net, 2),
+            "expenses": round(exp, 2),
+            "savings": round(savings, 2),
+            "savings_rate": round(rate, 1),
+        })
+
+    # Top 3 expense categories
+    top_categories = sorted(category_totals.items(), key=lambda x: x[1], reverse=True)[:3]
+    transaction_count = Transaction.query.filter_by(user_id=uid).count()
+
+    avg_monthly_income = total_gross / 6 if total_gross else 0.0
+    avg_monthly_expenses = total_expenses / 6 if total_expenses else 0.0
+    overall_savings_rate = ((total_net - total_expenses) / total_net * 100) if total_net else 0.0
+
+    return jsonify({
+        "monthly_series": monthly_series,
+        "total_gross_income": round(total_gross, 2),
+        "total_net_income": round(total_net, 2),
+        "total_expenses": round(total_expenses, 2),
+        "avg_monthly_gross": round(avg_monthly_income, 2),
+        "avg_monthly_net": round((total_net / 6), 2) if total_net else 0.0,
+        "avg_monthly_expenses": round(avg_monthly_expenses, 2),
+        "overall_savings_rate": round(overall_savings_rate, 1),
+        "top_expense_categories": [{"category": c, "amount": round(a, 2)} for c, a in top_categories],
+        "transaction_count": transaction_count,
+        "income_entry_count": len(income_entries),
+    })
+
+
+@app.route("/api/financial/entries/<int:entry_id>", methods=["DELETE"])
+@login_required
+def financial_delete_entry(entry_id):
+    entry = IncomeEntry.query.filter_by(id=entry_id, user_id=current_user.id).first()
+    if not entry:
+        return jsonify({"error": "Not found"}), 404
+    db.session.delete(entry)
+    db.session.commit()
+    return jsonify({"message": "Income entry deleted"})
+
+
+@app.route("/api/financial/transactions/<int:trans_id>", methods=["DELETE"])
+@login_required
+def financial_delete_transaction_by_id(trans_id):
+    entry = Transaction.query.filter_by(id=trans_id, user_id=current_user.id).first()
+    if not entry:
+        return jsonify({"error": "Not found"}), 404
+    db.session.delete(entry)
+    db.session.commit()
+    return jsonify({"message": "Transaction deleted"})
 
 
 # ── Health check (no auth required) ──────────────────────────────────────────

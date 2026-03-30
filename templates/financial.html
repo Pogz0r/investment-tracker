@@ -1,0 +1,244 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>BDC Investment Tracker — Financial</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:ital,wght@0,400;0,600;0,700;1,400;1,600;1,700&family=Syne:wght@400;600;700&family=JetBrains+Mono:wght@400;500;600;700&display=swap" rel="stylesheet" />
+  <link rel="icon" type="image/svg+xml" href="/static/favicon.svg" />
+  <link rel="stylesheet" href="/static/css/style.css" />
+  <link rel="stylesheet" href="/static/css/financial.css" />
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.2/dist/chart.umd.min.js"></script>
+</head>
+<body>
+  <!-- ========== HEADER ========== -->
+  <header class="site-header">
+    <div class="header-inner">
+      <div class="brand">
+        <a href="/" class="brand-name"><span class="brand-accent">BDC</span> Investment Tracker</a>
+      </div>
+      <nav class="header-nav">
+        <a href="/" class="nav-tab">Portfolio</a>
+        <a href="/financial" class="nav-tab nav-tab--active">Financial</a>
+      </nav>
+      <div class="header-meta">
+        <span class="rate-badge" id="fxRate">USD/CAD: —</span>
+      </div>
+      <div class="user-profile">
+        {% if current_user.picture %}
+        <img src="{{ current_user.picture }}" class="user-avatar" referrerpolicy="no-referrer" alt="{{ current_user.name }}" />
+        {% endif %}
+        <span class="user-name">{{ (current_user.name or current_user.email or 'User').split()[0] }}</span>
+        <a href="/logout" class="btn btn-outline btn-sm">Sign out</a>
+      </div>
+    </div>
+  </header>
+
+  <main class="page">
+
+    <!-- ========== SUMMARY CARDS ========== -->
+    <section class="summary-grid">
+      <div class="card summary-card">
+        <div class="card-label">Monthly Gross Income</div>
+        <div class="card-value" id="monthlyGross">$0.00</div>
+        <div class="card-sub" id="avgPayPeriod">avg per pay period</div>
+      </div>
+      <div class="card summary-card">
+        <div class="card-label">Monthly Net Income</div>
+        <div class="card-value" id="monthlyNet">$0.00</div>
+        <div class="card-sub" id="netIncomeSub">CAD</div>
+      </div>
+      <div class="card summary-card">
+        <div class="card-label">Monthly Expenses</div>
+        <div class="card-value negative" id="monthlyExpenses">$0.00</div>
+        <div class="card-sub" id="topCategory">top: —</div>
+      </div>
+      <div class="card summary-card">
+        <div class="card-label">Savings Rate</div>
+        <div class="card-value" id="savingsRate">0%</div>
+        <div class="card-sub" id="savingsSub">net - expenses</div>
+      </div>
+      <div class="card summary-card">
+        <div class="card-label">Transactions</div>
+        <div class="card-value" id="transactionCount">0</div>
+        <div class="card-sub" id="incomeEntriesSub">0 income entries</div>
+      </div>
+    </section>
+
+    <!-- ========== MONTHLY CHART ========== -->
+    <section class="card chart-card">
+      <div class="chart-header">
+        <h2 class="section-title">Income vs Expenses — Last 6 Months</h2>
+      </div>
+      <div class="chart-wrap chart-wrap--bar">
+        <canvas id="monthlyBarChart"></canvas>
+        <p class="chart-empty" id="barEmpty">No data yet — upload a pay stub or bank statement to get started</p>
+      </div>
+    </section>
+
+    <!-- ========== UPLOAD SECTION ========== -->
+    <section class="card upload-card">
+      <div class="upload-header">
+        <h2 class="section-title">Upload Documents</h2>
+      </div>
+      <div class="upload-grid">
+        <div class="upload-box" id="payStubBox">
+          <div class="upload-icon">📄</div>
+          <div class="upload-label">Upload Pay Stub</div>
+          <div class="upload-hint">PDF — extracts employer, pay date, gross &amp; net income</div>
+          <button class="btn btn-outline upload-btn" id="uploadPayStubBtn">Choose PDF</button>
+          <input type="file" id="payStubInput" accept=".pdf" style="display:none" />
+          <div class="upload-status" id="payStubStatus"></div>
+        </div>
+        <div class="upload-box" id="bankStmtBox">
+          <div class="upload-icon">🏦</div>
+          <div class="upload-label">Upload Bank Statement</div>
+          <div class="upload-hint">CSV or PDF — extracts dated transactions</div>
+          <button class="btn btn-outline upload-btn" id="uploadBankStmtBtn">Choose File</button>
+          <input type="file" id="bankStmtInput" accept=".csv,.pdf" style="display:none" />
+          <div class="upload-status" id="bankStmtStatus"></div>
+        </div>
+        <div class="upload-box">
+          <div class="upload-icon">✏️</div>
+          <div class="upload-label">Add Manually</div>
+          <div class="upload-hint">Enter income or expense data by hand</div>
+          <button class="btn btn-outline upload-btn" id="addIncomeManualBtn">+ Income</button>
+          <button class="btn btn-outline upload-btn" id="addExpenseManualBtn" style="margin-top:8px">+ Expense</button>
+        </div>
+      </div>
+    </section>
+
+    <!-- ========== INCOME ENTRIES ========== -->
+    <section class="card holdings-card" id="incomeSection">
+      <div class="holdings-header">
+        <h2 class="section-title">Income Entries</h2>
+        <button class="btn btn-outline" id="addIncomeEntryBtn">+ Add Income</button>
+      </div>
+      <div class="table-scroll">
+        <table class="holdings-table">
+          <thead>
+            <tr>
+              <th>Pay Date</th>
+              <th>Employer</th>
+              <th>Gross (CAD)</th>
+              <th>Net (CAD)</th>
+              <th>Deductions</th>
+              <th></th>
+            </tr>
+          </thead>
+          <tbody id="incomeBody">
+            <tr class="empty-row"><td colspan="6">No income entries yet</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </section>
+
+    <!-- ========== RECENT TRANSACTIONS ========== -->
+    <section class="card holdings-card" id="transactionsSection">
+      <div class="holdings-header">
+        <h2 class="section-title">Recent Transactions</h2>
+        <button class="btn btn-outline" id="addTransactionBtn">+ Add Transaction</button>
+      </div>
+      <div class="table-scroll">
+        <table class="holdings-table">
+          <thead>
+            <tr>
+              <th>Date</th>
+              <th>Description</th>
+              <th>Category</th>
+              <th>Amount (CAD)</th>
+              <th>Source</th>
+              <th></th>
+            </tr>
+          </thead>
+          <tbody id="transactionsBody">
+            <tr class="empty-row"><td colspan="6">No transactions yet</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </section>
+
+  </main>
+
+  <!-- ========== MODALS ========== -->
+
+  <!-- Manual Income Entry -->
+  <div class="modal-overlay" id="incomeModal">
+    <div class="modal">
+      <div class="modal-header">
+        <h3>Add Income Entry</h3>
+        <button class="modal-close" data-close="incomeModal">&times;</button>
+      </div>
+      <form id="incomeForm" autocomplete="off">
+        <div class="form-group">
+          <label>Pay Date</label>
+          <input type="date" id="incomePayDate" required />
+        </div>
+        <div class="form-group">
+          <label>Employer</label>
+          <input type="text" id="incomeEmployer" placeholder="e.g. Highlight Motor Freight" required />
+        </div>
+        <div class="form-group">
+          <label>Gross Income (CAD)</label>
+          <input type="number" id="incomeGross" placeholder="e.g. 2500" min="0.01" step="any" required />
+        </div>
+        <div class="form-group">
+          <label>Net Income (CAD)</label>
+          <input type="number" id="incomeNet" placeholder="e.g. 1850" min="0.01" step="any" required />
+        </div>
+        <p class="form-error" id="incomeError"></p>
+        <div class="modal-actions">
+          <button type="button" class="btn btn-outline" data-close="incomeModal">Cancel</button>
+          <button type="submit" class="btn btn-primary" id="incomeSubmitBtn">Add Entry</button>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <!-- Manual Transaction -->
+  <div class="modal-overlay" id="transactionModal">
+    <div class="modal">
+      <div class="modal-header">
+        <h3>Add Transaction</h3>
+        <button class="modal-close" data-close="transactionModal">&times;</button>
+      </div>
+      <form id="transactionForm" autocomplete="off">
+        <div class="form-group">
+          <label>Date</label>
+          <input type="date" id="transDate" required />
+        </div>
+        <div class="form-group">
+          <label>Description</label>
+          <input type="text" id="transDesc" placeholder="e.g. Grocery run at Walmart" required maxlength="512" />
+        </div>
+        <div class="form-group">
+          <label>Amount (CAD)</label>
+          <input type="number" id="transAmount" placeholder="e.g. -85.50 for expense" step="any" required />
+          <span class="form-hint">Use negative for expenses (e.g. -85.50)</span>
+        </div>
+        <div class="form-group">
+          <label>Category</label>
+          <select id="transCategory">
+            <option value="groceries">Groceries</option>
+            <option value="gas">Gas / Fuel</option>
+            <option value="subscriptions">Subscriptions</option>
+            <option value="dining">Dining</option>
+            <option value="utilities">Utilities</option>
+            <option value="insurance">Insurance</option>
+            <option value="other">Other</option>
+          </select>
+        </div>
+        <p class="form-error" id="transError"></p>
+        <div class="modal-actions">
+          <button type="button" class="btn btn-outline" data-close="transactionModal">Cancel</button>
+          <button type="submit" class="btn btn-primary" id="transSubmitBtn">Add Transaction</button>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <script src="/static/js/financial.js"></script>
+</body>
+</html>

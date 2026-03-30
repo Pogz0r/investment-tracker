@@ -294,6 +294,38 @@ body {
   white-space: nowrap;
 }
 
+/* header nav tabs */
+.header-nav {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.nav-tab {
+  padding: 5px 14px;
+  border-radius: var(--radius-sm);
+  font-family: var(--font-ui);
+  font-size: .74rem;
+  font-weight: 700;
+  letter-spacing: 0.07em;
+  text-transform: uppercase;
+  color: var(--text-sub);
+  text-decoration: none;
+  transition: all .2s;
+  border: 1px solid transparent;
+}
+
+.nav-tab:hover {
+  color: var(--text);
+  background: var(--bg-hover);
+}
+
+.nav-tab--active {
+  color: var(--amber);
+  background: var(--amber-dim);
+  border-color: rgba(212, 137, 10, 0.25);
+}
+
 .btn-sm {
   padding: 4px 12px !important;
   font-size: .72rem !important;
