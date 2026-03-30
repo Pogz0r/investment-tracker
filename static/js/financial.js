@@ -29,7 +29,11 @@ function catLabel(cat) {
   const map = {
     groceries: "Groceries", gas: "Gas", subscriptions: "Subscriptions",
     dining: "Dining", utilities: "Utilities", insurance: "Insurance",
-    internal_transfer: "Internal Transfer", other: "Other",
+    internal_transfer: "Internal Transfer",
+    maintenance: "Maintenance", meals_entertainment: "Meals & Ent",
+    office_general: "Office & Gen", telephone_utilities: "Tel & Utils",
+    travel_expense: "Travel", interest_bank: "Bank Charges",
+    taxes_licenses: "Taxes & Lic", other: "Other",
   };
   return map[cat] || cat;
 }
@@ -268,13 +272,14 @@ function renderIncomeEntries(entries) {
     const deductions = e.deductions || {};
     const dedTotal = Object.values(deductions).reduce((s, v) => s + (parseFloat(v) || 0), 0);
     return `
-    <tr>
+    <tr data-entry-id="${e.id}">
       <td>${e.pay_date}</td>
       <td><span class="ticker-badge">${e.employer}</span></td>
       <td class="positive">${fmtCad(e.gross_income)}</td>
       <td>${fmtCad(e.net_income)}</td>
       <td class="income-sub">${dedTotal > 0 ? "CA$" + fmt(dedTotal) : "—"}</td>
       <td class="row-actions">
+        <button class="btn-edit" onclick="openIncomeEditModal(${e.id})">Edit</button>
         <button class="btn-remove" onclick="deleteIncomeEntry(${e.id})">Delete</button>
       </td>
     </tr>`;
@@ -299,10 +304,10 @@ function renderFilteredTransactions() {
     return;
   }
   tbody.innerHTML = display.map(t => `
-    <tr>
+    <tr data-trans-id="${t.id}">
       <td>${t.date}</td>
       <td style="text-align:left;font-family:var(--font-ui)">${t.description}</td>
-      <td><span class="${catClass(t.category)}">${catLabel(t.category)}</span></td>
+      <td class="cat-cell" data-trans-id="${t.id}"><span class="${catClass(t.category)} cat-editable" data-cat="${t.category}" title="Click to change category">${catLabel(t.category)}</span></td>
       <td class="${t.amount >= 0 ? "positive" : "negative"}">${t.amount >= 0 ? "+" : ""}${fmtCad(t.amount)}</td>
       <td><span class="income-sub">${t.source === "bank_statement" ? "Bank" : "Manual"}</span></td>
       <td class="row-actions">
@@ -486,6 +491,9 @@ document.getElementById("creditCardInput").addEventListener("change", async (e) 
 document.getElementById("addIncomeManualBtn").addEventListener("click", () => {
   document.getElementById("incomeError").textContent = "";
   document.getElementById("incomeForm").reset();
+  document.getElementById("incomeEditId").value = "";
+  document.getElementById("incomeModalTitle").textContent = "Add Income Entry";
+  document.getElementById("incomeSubmitBtn").textContent = "Add Entry";
   setDefaultDate("incomePayDate");
   openModal("incomeModal");
 });
@@ -493,9 +501,29 @@ document.getElementById("addIncomeManualBtn").addEventListener("click", () => {
 document.getElementById("addIncomeEntryBtn").addEventListener("click", () => {
   document.getElementById("incomeError").textContent = "";
   document.getElementById("incomeForm").reset();
+  document.getElementById("incomeEditId").value = "";
+  document.getElementById("incomeModalTitle").textContent = "Add Income Entry";
+  document.getElementById("incomeSubmitBtn").textContent = "Add Entry";
   setDefaultDate("incomePayDate");
   openModal("incomeModal");
 });
+
+// ── open income edit modal ─────────────────────────────────────────────────
+
+function openIncomeEditModal(entryId) {
+  const entry = finEntries.find(e => e.id === entryId);
+  if (!entry) return;
+  document.getElementById("incomeError").textContent = "";
+  document.getElementById("incomeEditId").value = entryId;
+  document.getElementById("incomeModalTitle").textContent = "Edit Income Entry";
+  document.getElementById("incomeSubmitBtn").textContent = "Save Changes";
+  document.getElementById("incomePayDate").value = entry.pay_date;
+  document.getElementById("incomeEmployer").value = entry.employer;
+  document.getElementById("incomeGross").value = entry.gross_income;
+  document.getElementById("incomeNet").value = entry.net_income;
+  openModal("incomeModal");
+}
+window.openIncomeEditModal = openIncomeEditModal;
 
 document.getElementById("addTransactionBtn").addEventListener("click", () => {
   document.getElementById("transError").textContent = "";
@@ -520,8 +548,9 @@ document.getElementById("incomeForm").addEventListener("submit", async (e) => {
   const submitBtn = document.getElementById("incomeSubmitBtn");
   errEl.textContent = "";
   submitBtn.classList.add("loading");
-  submitBtn.textContent = "Adding…";
+  submitBtn.textContent = "Saving…";
 
+  const editId = document.getElementById("incomeEditId").value;
   const payload = {
     pay_date: document.getElementById("incomePayDate").value,
     employer: document.getElementById("incomeEmployer").value.trim(),
@@ -530,23 +559,29 @@ document.getElementById("incomeForm").addEventListener("submit", async (e) => {
   };
 
   try {
-    const res = await fetch("/api/financial/entries", {
-      method: "POST",
+    const url = editId ? `/api/income/edit/${editId}` : "/api/financial/entries";
+    const method = editId ? "PUT" : "POST";
+    const res = await fetch(url, {
+      method,
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(payload),
     });
     const data = await res.json();
     if (!res.ok) {
-      errEl.textContent = data.error || "Failed to add entry";
+      errEl.textContent = data.error || "Failed to save entry";
     } else {
       closeModal("incomeModal");
+      // Reset to add mode
+      document.getElementById("incomeEditId").value = "";
+      document.getElementById("incomeModalTitle").textContent = "Add Income Entry";
+      document.getElementById("incomeSubmitBtn").textContent = "Add Entry";
       await fetchAll();
     }
   } catch {
     errEl.textContent = "Network error. Please try again.";
   } finally {
     submitBtn.classList.remove("loading");
-    submitBtn.textContent = "Add Entry";
+    submitBtn.textContent = editId ? "Save Changes" : "Add Entry";
   }
 });
 
@@ -602,3 +637,94 @@ document.getElementById("monthFilter")?.addEventListener("change", onMonthFilter
 // ── init ─────────────────────────────────────────────────────────────────
 
 fetchAll();
+
+// ── category inline edit ──────────────────────────────────────────────────
+
+// CRA-aligned category options for the inline dropdown
+const CRA_CATEGORIES = [
+  { value: "maintenance",        label: "Maintenance",        short: "Maintenance" },
+  { value: "meals_entertainment",label: "Meals & Entertainment", short: "Meals & Ent" },
+  { value: "office_general",     label: "Office & General",   short: "Office & Gen" },
+  { value: "telephone_utilities",label: "Telephone & Utilities", short: "Tel & Utils" },
+  { value: "travel_expense",     label: "Travel Expense",      short: "Travel" },
+  { value: "insurance",          label: "Insurance",           short: "Insurance" },
+  { value: "interest_bank",      label: "Interest & Bank Charges", short: "Bank Charges" },
+  { value: "taxes_licenses",     label: "Business Taxes & Licenses", short: "Taxes & Lic" },
+  { value: "other",              label: "Other",               short: "Other" },
+  // Legacy categories still used by existing transactions
+  { value: "groceries",          label: "Groceries",           short: "Groceries" },
+  { value: "gas",                label: "Gas / Fuel",          short: "Gas" },
+  { value: "subscriptions",      label: "Subscriptions",       short: "Subscriptions" },
+  { value: "dining",             label: "Dining",               short: "Dining" },
+  { value: "utilities",          label: "Utilities",            short: "Utilities" },
+];
+
+function buildCatSelect(currentCat) {
+  const sel = document.createElement("select");
+  sel.className = "cat-edit-select";
+  sel.style.cssText = "background:var(--bg-card-alt);border:1px solid var(--border);border-radius:var(--radius-sm);color:var(--text);font-family:var(--font-mono);font-size:.75rem;padding:2px 6px;outline:none;cursor:pointer;";
+  CRA_CATEGORIES.forEach(c => {
+    const opt = document.createElement("option");
+    opt.value = c.value;
+    opt.textContent = c.short;
+    if (c.value === currentCat) opt.selected = true;
+    sel.appendChild(opt);
+  });
+  return sel;
+}
+
+// Attach click handler to category cells via event delegation
+document.getElementById("transactionsBody").addEventListener("click", async (e) => {
+  const span = e.target.closest(".cat-editable");
+  if (!span) return;
+
+  const transId = parseInt(span.dataset.transId || span.closest("tr")?.dataset.transId);
+  if (!transId) return;
+
+  // Already editing?
+  if (span.closest(".cat-cell").querySelector(".cat-edit-select")) return;
+
+  const currentCat = span.dataset.cat;
+  const sel = buildCatSelect(currentCat);
+  const cell = span.closest(".cat-cell");
+
+  // Replace span with select
+  cell.innerHTML = "";
+  cell.appendChild(sel);
+  sel.focus();
+
+  async function saveAndRestore() {
+    const newCat = sel.value;
+    cell.innerHTML = "";
+    const newSpan = document.createElement("span");
+    newSpan.className = `${catClass(newCat)} cat-editable`;
+    newSpan.dataset.cat = newCat;
+    newSpan.title = "Click to change category";
+    newSpan.textContent = catLabel(newCat);
+    cell.appendChild(newSpan);
+
+    if (newCat !== currentCat) {
+      try {
+        await fetch(`/api/transaction/edit/${transId}`, {
+          method: "PUT",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ category: newCat }),
+        });
+        // Update local state
+        const t = finTransactions.find(t => t.id === transId);
+        if (t) t.category = newCat;
+        renderFilteredExpenses();
+      } catch (err) {
+        console.error("Failed to update category:", err);
+      }
+    }
+  }
+
+  sel.addEventListener("change", saveAndRestore);
+  sel.addEventListener("blur", saveAndRestore);
+  sel.addEventListener("keydown", (e2) => {
+    if (e2.key === "Escape") {
+      sel.blur();
+    }
+  });
+});

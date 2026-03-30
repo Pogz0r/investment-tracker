@@ -708,6 +708,7 @@ body.compact .user-avatar { width: 26px; height: 26px; }
 }
 
 .btn-action,
+.btn-edit,
 .btn-remove {
   background: none;
   border: 1px solid var(--border);
@@ -724,6 +725,27 @@ body.compact .user-avatar { width: 26px; height: 26px; }
 }
 
 .btn-action:hover {
+  border-color: var(--amber);
+  color: var(--amber);
+  background: var(--amber-dim);
+}
+
+.btn-edit {
+  background: none;
+  border: 1px solid var(--border);
+  color: var(--text-muted);
+  border-radius: var(--radius-sm);
+  padding: 4px 10px;
+  cursor: pointer;
+  font-family: var(--font-ui);
+  font-size: .68rem;
+  font-weight: 700;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  transition: all .15s;
+}
+
+.btn-edit:hover {
   border-color: var(--amber);
   color: var(--amber);
   background: var(--amber-dim);

@@ -181,10 +181,11 @@
   <div class="modal-overlay" id="incomeModal">
     <div class="modal">
       <div class="modal-header">
-        <h3>Add Income Entry</h3>
+        <h3 id="incomeModalTitle">Add Income Entry</h3>
         <button class="modal-close" data-close="incomeModal">&times;</button>
       </div>
       <form id="incomeForm" autocomplete="off">
+        <input type="hidden" id="incomeEditId" value="" />
         <div class="form-group">
           <label>Pay Date</label>
           <input type="date" id="incomePayDate" required />
@@ -209,6 +210,8 @@
       </form>
     </div>
   </div>
+
+  <!-- Edit Income Entry (same modal, reused via JS title swap) -->
 
   <!-- Manual Transaction -->
   <div class="modal-overlay" id="transactionModal">
@@ -251,6 +254,8 @@
       </form>
     </div>
   </div>
+
+  <!-- Edit Transaction Category (inline dropdown, no modal needed) -->
 
   <script src="/static/js/financial.js"></script>
 </body>

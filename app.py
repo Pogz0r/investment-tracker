@@ -1379,7 +1379,7 @@ def _handle_financial_upload():
         # Store the entry directly
         pay_date = datetime.today().date()
         if extracted["pay_date"]:
-            for fmt in ("%m/%d/%Y", "%d/%m/%Y", "%m-%d-%Y", "%d-%m-%Y"):
+            for fmt in ("%Y-%m-%d", "%m/%d/%Y", "%d/%m/%Y", "%m-%d-%Y", "%d-%m-%Y"):
                 try:
                     pay_date = datetime.strptime(extracted["pay_date"], fmt).date()
                     break
@@ -1669,6 +1669,43 @@ def financial_summary():
         "transaction_count": transaction_count,
         "income_entry_count": len(income_entries),
     })
+
+
+@app.route("/api/income/edit/<int:entry_id>", methods=["PUT"])
+@login_required
+def edit_income_entry(entry_id):
+    entry = IncomeEntry.query.filter_by(id=entry_id, user_id=current_user.id).first_or_404()
+    data = request.get_json()
+    if "pay_date" in data:
+        entry.pay_date = datetime.strptime(data["pay_date"], "%Y-%m-%d").date()
+    if "employer" in data:
+        entry.employer = data["employer"][:256]
+    if "gross_income" in data:
+        entry.gross_income = float(data["gross_income"])
+    if "net_income" in data:
+        entry.net_income = float(data["net_income"])
+    db.session.commit()
+    return jsonify({"success": True, "entry": {
+        "id": entry.id,
+        "pay_date": entry.pay_date.isoformat(),
+        "employer": entry.employer,
+        "gross_income": entry.gross_income,
+        "net_income": entry.net_income,
+        "deductions": entry.deductions,
+    }})
+
+
+@app.route("/api/transaction/edit/<int:transaction_id>", methods=["PUT"])
+@login_required
+def edit_transaction(transaction_id):
+    t = Transaction.query.filter_by(id=transaction_id, user_id=current_user.id).first_or_404()
+    data = request.get_json()
+    if "category" in data:
+        t.category = data["category"]
+    if "description" in data:
+        t.description = data["description"][:256]
+    db.session.commit()
+    return jsonify({"success": True})
 
 
 @app.route("/api/financial/entries/<int:entry_id>", methods=["DELETE"])
