@@ -898,6 +898,75 @@ def _image_to_text(file_stream) -> str:
 
 # ── Pay stub parser ───────────────────────────────────────────────────────────
 
+def _parse_driver_payment_form(text: str) -> dict:
+    """Extract income data from a driver payment / trip settlement form.
+
+    Format example:
+        Company   1000944163 ONTARIO INC.
+        From   08-Dec-2025   To   21-Dec-2025   Trip#   484170
+        Item   Service   Qty   U/M   Rate   Per   Amount   Currency
+        1   H   0.0   0.0   $356.54
+        2   INSURANCE   1.0   -50.0   $-50.00
+        3   SAFETY BONUS   5106.7   0.02   $102.13
+        4   DRIVER PAY   5106.7   0.52   $2,655.48
+        5   EXTRA DROP   1.0   35.0   $35.00
+        Total Trip: $3,099.15   CAD
+
+    gross_income = sum of all positive pay line items (DRIVER PAY, SAFETY BONUS, H, EXTRA DROP)
+    net_income   = gross_income - |INSURANCE deduction|
+    """
+    import re
+
+    result = {"employer": "", "pay_date": "", "gross_income": 0.0, "net_income": 0.0, "deductions": {}}
+
+    # Employer: numeric corp number + company name ending in INC, LTD, LLC, CORP, etc.
+    # e.g. "Company   1000944163 ONTARIO INC."
+    company_match = re.search(
+        r"Company\s{2,}([0-9]+\s+[A-Za-z\s]+?(?:INC\.|INC|LLC|LTD|CORP))", text, re.IGNORECASE
+    )
+    if company_match:
+        result["employer"] = company_match.group(1).strip()[:100]
+
+    # Pay date: trip end date from "To   21-Dec-2025" (dash-separated day-mon-year)
+    to_date_match = re.search(r"To\s+(\d{1,2})-([A-Za-z]{3})-(\d{4})", text)
+    if to_date_match:
+        day, mon, year = to_date_match.groups()
+        mon_map = {"jan": "01", "feb": "02", "mar": "03", "apr": "04", "may": "05", "jun": "06",
+                   "jul": "07", "aug": "08", "sep": "09", "oct": "10", "nov": "11", "dec": "12"}
+        mon_key = mon[:3].lower()
+        if mon_key in mon_map:
+            result["pay_date"] = f"{year}-{mon_map[mon_key]}-{day.zfill(2)}"
+
+    # Insurance deduction: $-50.00 (negative) — take absolute value as a deduction
+    insurance_match = re.search(r"INSURANCE.*?\$(-?[\d,]+\.\d{2})", text, re.IGNORECASE)
+    insurance_amount = 0.0
+    if insurance_match:
+        try:
+            raw = insurance_match.group(1).replace(",", "")
+            insurance_amount = abs(float(raw))
+            result["deductions"]["insurance"] = -insurance_amount
+        except ValueError:
+            pass
+
+    # All item table rows have their dollar amount near the end:
+    # e.g. "1   H   0.0   0.0   $356.54" or "4   DRIVER PAY   5106.7   0.52   $2,655.48"
+    all_amounts = re.findall(r"^\d+\s+\S+.*?\$([\d,]+\.\d{2})", text, re.MULTILINE)
+
+    gross = 0.0
+    for amt_str in all_amounts:
+        try:
+            val = float(amt_str.replace(",", ""))
+            if val > 0:
+                gross += val
+        except ValueError:
+            pass
+
+    result["gross_income"] = round(gross, 2)
+    result["net_income"] = round(gross - insurance_amount, 2)
+
+    return result
+
+
 def _parse_pay_stub(file_stream, filename: str) -> dict:
     """Extract employer, pay_date, gross_income, net_income from a PDF or image file."""
     import re
@@ -949,6 +1018,14 @@ def _parse_pay_stub(file_stream, filename: str) -> dict:
         print(f"[pay_stub] parse error: {exc}")
         return extracted
 
+    # ── Driver payment form / trip settlement detection ─────────────────────
+    if re.search(r'Trip#|DRIVER PAY|Total Trip:|SAFETY BONUS', text, re.IGNORECASE):
+        # Parse as driver payment form: per-trip settlement from trucking company
+        # Format: Company | From/To dates | Trip# | Item/Service/Amount lines | Total Trip
+        driver_extracted = _parse_driver_payment_form(text)
+        if driver_extracted["employer"] or driver_extracted["gross_income"] > 0:
+            return driver_extracted
+
     lines = text.split("\n")
     for line in lines:
         line_stripped = line.strip()
@@ -973,10 +1050,20 @@ def _parse_pay_stub(file_stream, filename: str) -> dict:
             except ValueError:
                 pass
 
-        # Pay date
+        # Pay date — also handle "21-Dec-2025" format
         date_match = re.search(r"(\d{1,2}[-/]\d{1,2}[-/]\d{2,4})", line_stripped)
         if date_match and not extracted["pay_date"]:
             extracted["pay_date"] = date_match.group(1)
+        # "21-Dec-2025" or "21-December2025" style dates
+        if not extracted["pay_date"]:
+            mon_map = {"jan": "01", "feb": "02", "mar": "03", "apr": "04", "may": "05", "jun": "06",
+                       "jul": "07", "aug": "08", "sep": "09", "oct": "10", "nov": "11", "dec": "12"}
+            alt_match = re.search(r"(\d{1,2})[\s-]([A-Za-z]+)[\s-](\d{4})", line_stripped)
+            if alt_match:
+                day, mon, year = alt_match.groups()
+                mon_key = mon[:3].lower()
+                if mon_key in mon_map:
+                    extracted["pay_date"] = f"{year}-{mon_map[mon_key]}-{day.zfill(2)}"
 
     return extracted
 
