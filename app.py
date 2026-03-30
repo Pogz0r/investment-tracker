@@ -756,6 +756,14 @@ CATEGORY_KEYWORDS = {
     "other": [],
 }
 
+# Internal transfer keywords — these transactions are internalmovements, not real expenses
+_INTERNAL_TRANSFER_KEYWORDS = [
+    "transfer to", "transfer from", "internal transfer",
+    "movimiento interno", "virement", "internal", "intrnl",
+    "xfer to", "xfer from", "paypal transfer", "venmo transfer",
+    "e-transfer", "e transfer",
+]
+
 
 def _auto_categorize(description: str) -> str:
     desc_lower = description.lower()
@@ -768,19 +776,170 @@ def _auto_categorize(description: str) -> str:
     return "other"
 
 
+def _is_internal_transfer(description: str) -> bool:
+    """Return True if the description matches patterns for an internal bank transfer."""
+    desc_lower = description.lower()
+    # Match keyword patterns
+    for kw in _INTERNAL_TRANSFER_KEYWORDS:
+        if kw in desc_lower:
+            return True
+    # Pattern: account-number-like sequences in description (8-12 digit runs)
+    import re
+    if re.search(r"\b\d{8,12}\b", description):
+        return True
+    return False
+
+
+def _scrub_pii(text: str) -> str:
+    """Remove PII from a string: bank/routing/credit card numbers, SINs, full addresses.
+    Returns the scrubbed string. Only the clean merchant/detail portion is stored."""
+    import re
+
+    # Routing numbers: exactly 9 digits
+    text = re.sub(r"\b\d{9}\b", "[REDACTED]", text)
+    # Credit card numbers: 13-19 consecutive digits (with optional spaces/dashes)
+    text = re.sub(r"\b\d{4}[\s-]?\d{4}[\s-]?\d{4}[\s-]?\d{1,5}\b", "[REDACTED]", text)
+    text = re.sub(r"\b\d{13,19}\b", "[REDACTED]", text)
+    # Bank account numbers: 8-12 digit runs that look like account numbers
+    # (avoid redacting dates, amounts, etc. by requiring word boundaries)
+    text = re.sub(r"\b\d{8,12}\b", "[REDACTED]", text)
+    # SIN numbers: 9-digit sequences (Canadian social insurance number)
+    # redact only when standalone (not part of a larger number)
+    text = re.sub(r"(?<!\d)\d{9}(?!\d)", "[REDACTED]", text)
+    # Cleanup any double-redactions
+    text = text.replace("[REDACTED] [REDACTED]", "[REDACTED]")
+    return text
+
+
+# ── File-type detection helpers ──────────────────────────────────────────────
+
+ALLOWED_PAY_STUB_MIME_TYPES = {
+    "application/pdf",
+    "image/jpeg",
+    "image/png",
+    "image/heic",
+    "image/heif",
+}
+ALLOWED_BANK_STMT_MIME_TYPES = {
+    "application/pdf",
+    "text/csv",
+    "application/csv",
+    "text/comma-separated-values",
+    "image/jpeg",
+    "image/png",
+    "image/heic",
+    "image/heif",
+}
+
+
+def _detect_mime_type(content_bytes: bytes) -> str:
+    """Detect MIME type from file magic bytes."""
+    if content_bytes.startswith(b"\x89PNG\r\n\x1a\n"):
+        return "image/png"
+    if content_bytes.startswith(b"\xff\xd8\xff"):
+        return "image/jpeg"
+    if content_bytes.startswith(b"RIFF") and content_bytes[8:12] == b"WEBP":
+        return "image/webp"
+    # HEIC/HEIF: major brand at offset 8
+    heif_brands = [b"heic", b"heix", b"mif1", b"hevc", b"hevx"]
+    if content_bytes[4:8] == b"ftyp":
+        brand = content_bytes[8:12]
+        if brand in heif_brands:
+            return "image/heic"
+        if brand in [b"jpeg"]:
+            return "image/jpeg"
+    if b"%PDF" in content_bytes[:8]:
+        return "application/pdf"
+    return "application/octet-stream"
+
+
+def _allowed_mime(mime_type: str, allowed_set: set) -> bool:
+    return mime_type in allowed_set or mime_type.startswith("image/")
+
+
+# ── Image → text helpers ──────────────────────────────────────────────────────
+
+def _image_to_text(file_stream) -> str:
+    """Convert an image file (JPEG, PNG, HEIC) to text using pdfplumber on a converted JPEG."""
+    import io
+    import pdfplumber
+    try:
+        from PIL import Image
+    except ImportError:
+        return ""
+
+    try:
+        file_stream.seek(0)
+        img = Image.open(file_stream)
+        # Convert to RGB (pdfplumber needs RGB)
+        if img.mode in ("RGBA", "P", "L"):
+            img = img.convert("RGB")
+        # Save as JPEG to a BytesIO buffer
+        buf = io.BytesIO()
+        img.save(buf, format="JPEG", quality=85)
+        buf.seek(0)
+        text = ""
+        with pdfplumber.open(buf) as pdf:
+            for page in pdf.pages:
+                t = page.extract_text() or ""
+                text += t + "\n"
+        return text
+    except Exception as exc:
+        print(f"[image_to_text] error: {exc}")
+        return ""
+
+
+# ── Pay stub parser ───────────────────────────────────────────────────────────
+
 def _parse_pay_stub(file_stream, filename: str) -> dict:
-    """Attempt to extract employer, pay_date, gross_income, net_income from a PDF."""
+    """Extract employer, pay_date, gross_income, net_income from a PDF or image file."""
+    import re
+    import io
     import pdfplumber
 
     extracted = {"employer": "", "pay_date": "", "gross_income": 0.0, "net_income": 0.0, "deductions": {}}
 
+    file_stream.seek(0)
+    content = file_stream.read()
+    mime = _detect_mime_type(content)
+
+    text = ""
     try:
-        with pdfplumber.open(file_stream) as pdf:
-            text = ""
-            for page in pdf.pages:
-                t = page.extract_text() or ""
-                text += t + "\n"
-    except Exception:
+        if mime == "application/pdf":
+            file_stream.seek(0)
+            with pdfplumber.open(file_stream) as pdf:
+                for page in pdf.pages:
+                    t = page.extract_text() or ""
+                    text += t + "\n"
+        elif mime in ("image/jpeg", "image/png"):
+            file_stream.seek(0)
+            text = _image_to_text(file_stream)
+        elif mime == "image/heic":
+            # Convert HEIC → JPEG via pillow-heif, then extract text
+            file_stream.seek(0)
+            try:
+                import pillow_heif
+                heif_file = pillow_heif.open_heif(file_stream.read())
+                img = heif_file.convert("RGB")
+                buf = io.BytesIO()
+                img.save(buf, format="JPEG", quality=85)
+                buf.seek(0)
+                with pdfplumber.open(buf) as pdf:
+                    for page in pdf.pages:
+                        t = page.extract_text() or ""
+                        text += t + "\n"
+            except Exception as exc:
+                print(f"[pay_stub] HEIC parse error: {exc}")
+                # Fallback: try plain PIL
+                file_stream.seek(0)
+                from PIL import Image
+                img = Image.open(file_stream).convert("RGB")
+                buf = io.BytesIO()
+                img.save(buf, format="JPEG", quality=85)
+                buf.seek(0)
+                text = _image_to_text(buf)
+    except Exception as exc:
+        print(f"[pay_stub] parse error: {exc}")
         return extracted
 
     lines = text.split("\n")
@@ -792,7 +951,6 @@ def _parse_pay_stub(file_stream, filename: str) -> dict:
                 extracted["employer"] = line_stripped[:100]
 
         # Gross income
-        import re
         gross_match = re.search(r"gross\s*(?:pay|income|amount)?[:\s]*\$?\s*([\d,]+\.?\d*)", line_stripped, re.IGNORECASE)
         if gross_match and not extracted["gross_income"]:
             try:
@@ -816,16 +974,22 @@ def _parse_pay_stub(file_stream, filename: str) -> dict:
     return extracted
 
 
+# ── Bank statement parser ─────────────────────────────────────────────────────
+
 def _parse_bank_statement(file_stream, filename: str) -> list:
-    """Attempt to extract transactions from a CSV or PDF bank statement."""
-    import pdfplumber
+    """Extract transactions from CSV, PDF, JPEG, PNG, or HEIC bank statements.
+    Each transaction is PII-scrubbed before being returned."""
     import re
+    import io
+    import pdfplumber
 
     transactions = []
 
-    # Try CSV first
     file_stream.seek(0)
     content = file_stream.read()
+    mime = _detect_mime_type(content)
+
+    # ── CSV ──────────────────────────────────────────────────────────────────
     if b"," in content or b"\t" in content:
         try:
             text = content.decode("utf-8", errors="ignore")
@@ -833,7 +997,6 @@ def _parse_bank_statement(file_stream, filename: str) -> list:
                 parts = [p.strip().strip('"') for p in re.split(r"[,;\t]", line)]
                 if len(parts) < 2:
                     continue
-                # Look for date, description, amount pattern
                 amt_match = None
                 for p in parts:
                     m = re.search(r"-?\$?([\d,]+\.?\d*)", p)
@@ -841,10 +1004,7 @@ def _parse_bank_statement(file_stream, filename: str) -> list:
                         amt_str = m.group(1).replace(",", "")
                         try:
                             val = float(amt_str)
-                            if val > 0:
-                                amt_match = -val  # bank debits are expenses
-                            else:
-                                amt_match = val
+                            amt_match = -val if val > 0 else val
                             break
                         except ValueError:
                             pass
@@ -856,33 +1016,67 @@ def _parse_bank_statement(file_stream, filename: str) -> list:
                             trans_date = datetime.strptime(date_str[:10], "%Y-%m-%d").date() if "-" in date_str else datetime.today().date()
                         except ValueError:
                             trans_date = datetime.today().date()
+                        desc_scrubbed = _scrub_pii(desc[:200])
+                        cat = "internal_transfer" if _is_internal_transfer(desc) else _auto_categorize(desc_scrubbed)
                         transactions.append({
                             "date": trans_date.isoformat(),
-                            "description": desc[:200],
+                            "description": desc_scrubbed,
                             "amount": round(amt_match, 2),
-                            "category": _auto_categorize(desc),
+                            "category": cat,
                         })
             return transactions
         except Exception:
             pass
 
-    # Try PDF
-    file_stream.seek(0)
-    try:
-        with pdfplumber.open(file_stream) as pdf:
+    # ── PDF ──────────────────────────────────────────────────────────────────
+    if mime == "application/pdf":
+        file_stream.seek(0)
+        try:
+            with pdfplumber.open(file_stream) as pdf:
+                text = ""
+                for page in pdf.pages:
+                    text += (page.extract_text() or "") + "\n"
+        except Exception as exc:
+            print(f"[bank_statement] PDF parse error: {exc}")
             text = ""
-            for page in pdf.pages:
-                text += (page.extract_text() or "") + "\n"
-    except Exception:
-        return transactions
+    else:
+        # Image: JPEG, PNG, HEIC
+        text = ""
+        try:
+            if mime in ("image/jpeg", "image/png"):
+                file_stream.seek(0)
+                text = _image_to_text(file_stream)
+            elif mime == "image/heic":
+                file_stream.seek(0)
+                try:
+                    import pillow_heif
+                    heif_file = pillow_heif.open_heif(file_stream.read())
+                    img = heif_file.convert("RGB")
+                    buf = io.BytesIO()
+                    img.save(buf, format="JPEG", quality=85)
+                    buf.seek(0)
+                    with pdfplumber.open(buf) as pdf:
+                        for page in pdf.pages:
+                            t = page.extract_text() or ""
+                            text += t + "\n"
+                except Exception as exc:
+                    print(f"[bank_statement] HEIC parse error: {exc}")
+                    file_stream.seek(0)
+                    from PIL import Image
+                    img = Image.open(file_stream).convert("RGB")
+                    buf = io.BytesIO()
+                    img.save(buf, format="JPEG", quality=85)
+                    buf.seek(0)
+                    text = _image_to_text(buf)
+        except Exception as exc:
+            print(f"[bank_statement] image parse error: {exc}")
 
-    # Extract date + description + amount rows
+    # Extract date + description + amount rows from text
     lines = text.split("\n")
     for line in lines:
         line_s = line.strip()
         if len(line_s) < 5:
             continue
-        # Look for lines with dates (YYYY-MM-DD or MM/DD/YYYY)
         date_m = re.search(r"(\d{4}[-/]\d{1,2}[-/]\d{1,2}|\d{1,2}[-/]\d{1,2}[-/]\d{2,4})", line_s)
         amt_m = re.search(r"-?\$?\s*([\d,]+\.\d{2})\b", line_s)
         if date_m and amt_m:
@@ -898,17 +1092,18 @@ def _parse_bank_statement(file_stream, filename: str) -> list:
                     trans_date = datetime.today().date()
                 raw_amt = amt_m.group(1).replace(",", "")
                 amount = round(float(raw_amt), 2)
-                # Remove the date and amount parts from the description
                 remaining = re.sub(r"(\d{4}[-/]\d{1,2}[-/]\d{1,2}|\d{1,2}[-/]\d{1,2}[-/]\d{2,4})", "", line_s)
                 remaining = re.sub(r"-?\$?\s*[\d,]+\.\d{2}", "", remaining)
                 remaining = re.sub(r"^\s*[-_.*|]+\s*", "", remaining)
-                desc = remaining.strip()[:200]
-                if desc and len(desc) > 2:
+                desc_raw = remaining.strip()[:200]
+                if desc_raw and len(desc_raw) > 2:
+                    desc_scrubbed = _scrub_pii(desc_raw)
+                    cat = "internal_transfer" if _is_internal_transfer(desc_raw) else _auto_categorize(desc_scrubbed)
                     transactions.append({
                         "date": trans_date.isoformat(),
-                        "description": desc,
+                        "description": desc_scrubbed,
                         "amount": amount,
-                        "category": _auto_categorize(desc),
+                        "category": cat,
                     })
             except (ValueError, IndexError):
                 pass
@@ -934,6 +1129,14 @@ def financial_upload():
     filename = file.filename or ""
 
     if upload_type == "pay_stub":
+        # MIME type validation
+        file.stream.seek(0)
+        header = file.stream.read(512)
+        mime = _detect_mime_type(header)
+        if not _allowed_mime(mime, ALLOWED_PAY_STUB_MIME_TYPES):
+            return jsonify({"error": f"Unsupported file type '{mime}' for pay stub. Please upload a PDF, JPEG, PNG, or HEIC image."}), 400
+        file.stream.seek(0)
+
         extracted = _parse_pay_stub(file.stream, filename)
 
         # Fallback: if nothing was extracted, return raw data so user can fill in
@@ -970,6 +1173,14 @@ def financial_upload():
         }}), 200
 
     elif upload_type == "bank_statement":
+        # MIME type validation
+        file.stream.seek(0)
+        header = file.stream.read(512)
+        mime = _detect_mime_type(header)
+        if not _allowed_mime(mime, ALLOWED_BANK_STMT_MIME_TYPES):
+            return jsonify({"error": f"Unsupported file type '{mime}' for bank statement. Please upload a PDF, CSV, JPEG, PNG, or HEIC image."}), 400
+        file.stream.seek(0)
+
         transactions = _parse_bank_statement(file.stream, filename)
 
         if not transactions:

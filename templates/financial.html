@@ -88,8 +88,8 @@
           <div class="upload-icon">📄</div>
           <div class="upload-label">Upload Pay Stub</div>
           <div class="upload-hint">PDF — extracts employer, pay date, gross &amp; net income</div>
-          <button class="btn btn-outline upload-btn" id="uploadPayStubBtn">Choose PDF</button>
-          <input type="file" id="payStubInput" accept=".pdf" style="display:none" />
+          <button class="btn btn-outline upload-btn" id="uploadPayStubBtn">Choose File</button>
+          <input type="file" id="payStubInput" accept=".pdf,.jpg,.jpeg,.png,.heic,.heif,image/*" style="display:none" />
           <div class="upload-status" id="payStubStatus"></div>
         </div>
         <div class="upload-box" id="bankStmtBox">
@@ -97,7 +97,7 @@
           <div class="upload-label">Upload Bank Statement</div>
           <div class="upload-hint">CSV or PDF — extracts dated transactions</div>
           <button class="btn btn-outline upload-btn" id="uploadBankStmtBtn">Choose File</button>
-          <input type="file" id="bankStmtInput" accept=".csv,.pdf" style="display:none" />
+          <input type="file" id="bankStmtInput" accept=".pdf,.csv,.jpg,.jpeg,.png,.heic,.heif,image/*" style="display:none" />
           <div class="upload-status" id="bankStmtStatus"></div>
         </div>
         <div class="upload-box">
@@ -139,7 +139,12 @@
     <section class="card holdings-card" id="transactionsSection">
       <div class="holdings-header">
         <h2 class="section-title">Recent Transactions</h2>
-        <button class="btn btn-outline" id="addTransactionBtn">+ Add Transaction</button>
+        <div style="display:flex;align-items:center;gap:10px;">
+          <select id="monthFilter" style="background:var(--bg-card-alt);border:1px solid var(--border);border-radius:var(--radius-sm);color:var(--text);font-family:var(--font-mono);font-size:.75rem;padding:5px 10px;outline:none;cursor:pointer;">
+            <option value="all">All months</option>
+          </select>
+          <button class="btn btn-outline" id="addTransactionBtn">+ Add Transaction</button>
+        </div>
       </div>
       <div class="table-scroll">
         <table class="holdings-table">

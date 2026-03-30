@@ -147,9 +147,21 @@
 .cat-dining    { background: rgba(212, 137, 10, 0.08); color: var(--amber-bright); border-color: rgba(212, 137, 10, 0.2); }
 .cat-utilities { background: rgba(77, 158, 255, 0.08); color: #60a5fa; border-color: rgba(77, 158, 255, 0.2); }
 .cat-insurance { background: rgba(0, 200, 122, 0.08); color: #00d97e; border-color: rgba(0, 200, 122, 0.2); }
+.cat-internal-transfer { background: rgba(167, 139, 250, 0.08); color: #a78bfa; border-color: rgba(167, 139, 250, 0.2); }
 .cat-other     { background: var(--bg-card-alt); color: var(--text-sub); border-color: var(--border); }
 
-/* Income entries table */
+/* Month filter select */
+#monthFilter {
+  transition: border-color .15s;
+}
+#monthFilter:focus {
+  border-color: var(--amber) !important;
+  box-shadow: 0 0 0 3px rgba(212, 137, 10, 0.12);
+}
+#monthFilter option {
+  background: var(--bg-card-alt);
+  color: var(--text);
+}
 .income-sub { font-size: .68rem; color: var(--text-muted); font-family: var(--font-mono); }
 
 /* Responsive */

@@ -6,6 +6,7 @@ let barChart = null;
 let finSummary = null;
 let finTransactions = [];
 let finEntries = [];
+let currentMonthFilter = "all";   // "all" or "YYYY-MM"
 
 // ── formatters ─────────────────────────────────────────────────────────────
 
@@ -19,6 +20,7 @@ function catClass(cat) {
   const map = {
     groceries: "cat-groceries", gas: "cat-gas", subscriptions: "cat-subscriptions",
     dining: "cat-dining", utilities: "cat-utilities", insurance: "cat-insurance",
+    internal_transfer: "cat-internal-transfer",
   };
   return `cat-pill ${map[cat] || "cat-other"}`;
 }
@@ -26,7 +28,8 @@ function catClass(cat) {
 function catLabel(cat) {
   const map = {
     groceries: "Groceries", gas: "Gas", subscriptions: "Subscriptions",
-    dining: "Dining", utilities: "Utilities", insurance: "Insurance", other: "Other",
+    dining: "Dining", utilities: "Utilities", insurance: "Insurance",
+    internal_transfer: "Internal Transfer", other: "Other",
   };
   return map[cat] || cat;
 }
@@ -86,6 +89,76 @@ function renderSummary(data) {
   document.getElementById("incomeEntriesSub").textContent = `${data.income_entry_count || 0} income entries`;
 
   renderBarChart(s);
+}
+
+function renderFilteredExpenses() {
+  /* Recompute monthly expenses from finTransactions for the selected month.
+     Updates the Monthly Expenses card and top category pill accordingly. */
+  const filter = currentMonthFilter;
+  let filtered = finTransactions;
+  if (filter !== "all") {
+    filtered = finTransactions.filter(t => t.date && t.date.startsWith(filter));
+  }
+
+  // Compute totals from filtered expense transactions (amount < 0, not internal_transfer)
+  const expenses = filtered
+    .filter(t => t.amount < 0 && t.category !== "internal_transfer")
+    .reduce((sum, t) => sum + Math.abs(t.amount), 0);
+
+  document.getElementById("monthlyExpenses").textContent = expenses ? "-" + fmtCad(expenses) : "$0.00";
+
+  // Top category from filtered set
+  const catMap = {};
+  filtered.filter(t => t.amount < 0 && t.category !== "internal_transfer").forEach(t => {
+    catMap[t.category] = (catMap[t.category] || 0) + Math.abs(t.amount);
+  });
+  const topEntry = Object.entries(catMap).sort((a, b) => b[1] - a[1])[0];
+  document.getElementById("topCategory").textContent = topEntry
+    ? `top: ${catLabel(topEntry[0])}`
+    : "top: —";
+}
+
+function populateMonthFilter() {
+  /* Build list of unique YYYY-MM months present in finTransactions and
+     populate the <select id="monthFilter"> dropdown. */
+  const select = document.getElementById("monthFilter");
+  if (!select) return;
+
+  // Collect months
+  const monthSet = new Set();
+  finTransactions.forEach(t => {
+    if (t.date && t.date.length >= 7) {
+      monthSet.add(t.date.substring(0, 7)); // "YYYY-MM"
+    }
+  });
+
+  // Sort descending (newest first)
+  const sorted = Array.from(monthSet).sort((a, b) => b.localeCompare(a));
+
+  // Build options
+  select.innerHTML = '<option value="all">All months</option>';
+  sorted.forEach(m => {
+    const [yr, mo] = m.split("-");
+    const label = new Date(parseInt(yr), parseInt(mo) - 1, 1)
+      .toLocaleString("en-US", { month: "short", year: "numeric" });
+    const opt = document.createElement("option");
+    opt.value = m;
+    opt.textContent = label;
+    select.appendChild(opt);
+  });
+
+  // Restore selection if still valid
+  if (currentMonthFilter !== "all" && ![...select.options].some(o => o.value === currentMonthFilter)) {
+    currentMonthFilter = "all";
+  }
+  select.value = currentMonthFilter;
+}
+
+function onMonthFilterChange() {
+  const select = document.getElementById("monthFilter");
+  currentMonthFilter = select ? select.value : "all";
+  renderFilteredExpenses();
+  renderFilteredTransactions();
 }
 
 function renderBarChart(monthlySeries) {
@@ -210,12 +283,22 @@ function renderIncomeEntries(entries) {
 
 function renderTransactions(transactions) {
   finTransactions = transactions;
+  populateMonthFilter();
+  renderFilteredTransactions();
+}
+
+function renderFilteredTransactions() {
   const tbody = document.getElementById("transactionsBody");
-  if (!transactions || !transactions.length) {
-    tbody.innerHTML = '<tr class="empty-row"><td colspan="6">No transactions yet</td></tr>';
+  const filter = currentMonthFilter;
+  let display = finTransactions;
+  if (filter !== "all") {
+    display = finTransactions.filter(t => t.date && t.date.startsWith(filter));
+  }
+  if (!display || !display.length) {
+    tbody.innerHTML = `<tr class="empty-row"><td colspan="6">${filter === "all" ? "No transactions yet" : "No transactions for selected month"}</td></tr>`;
     return;
   }
-  tbody.innerHTML = transactions.map(t => `
+  tbody.innerHTML = display.map(t => `
     <tr>
       <td>${t.date}</td>
       <td style="text-align:left;font-family:var(--font-ui)">${t.description}</td>
@@ -475,6 +558,10 @@ document.getElementById("transactionForm").addEventListener("submit", async (e) 
     submitBtn.textContent = "Add Transaction";
   }
 });
+
+// ── month filter ─────────────────────────────────────────────────────────
+
+document.getElementById("monthFilter")?.addEventListener("change", onMonthFilterChange);
 
 // ── init ─────────────────────────────────────────────────────────────────
 

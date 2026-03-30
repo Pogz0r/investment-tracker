@@ -258,6 +258,7 @@ body {
   font-style: italic;
   color: var(--text);
   letter-spacing: -0.01em;
+  text-decoration: none;
 }
 
 .brand-accent { color: var(--amber); }
