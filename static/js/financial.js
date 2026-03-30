@@ -445,6 +445,42 @@ document.getElementById("bankStmtInput").addEventListener("change", async (e) =>
   e.target.value = "";
 });
 
+// Credit card statement upload
+document.getElementById("uploadCreditCardBtn").addEventListener("click", () => {
+  document.getElementById("creditCardInput").click();
+});
+
+document.getElementById("creditCardInput").addEventListener("change", async (e) => {
+  const file = e.target.files[0];
+  if (!file) return;
+  const statusEl = document.getElementById("creditCardStatus");
+  statusEl.textContent = "Processing...";
+  statusEl.className = "upload-status";
+
+  const formData = new FormData();
+  formData.append("file", file);
+  formData.append("type", "credit_card");
+
+  try {
+    const res = await fetch("/api/financial/upload", { method: "POST", body: formData });
+    const data = await res.json();
+
+    if (res.ok) {
+      const msg = data.count ? `${data.count} transactions imported` : "Credit card statement processed";
+      statusEl.textContent = "✓ " + msg;
+      setTimeout(() => { statusEl.textContent = ""; }, 3000);
+      await fetchAll();
+    } else {
+      statusEl.textContent = data.error || "Upload failed";
+      statusEl.className = "upload-status error";
+    }
+  } catch (err) {
+    statusEl.textContent = "Network error";
+    statusEl.className = "upload-status error";
+  }
+  e.target.value = "";
+});
+
 // ── manual add buttons ─────────────────────────────────────────────────────
 
 document.getElementById("addIncomeManualBtn").addEventListener("click", () => {

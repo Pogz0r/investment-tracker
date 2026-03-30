@@ -830,6 +830,13 @@ ALLOWED_BANK_STMT_MIME_TYPES = {
     "image/heic",
     "image/heif",
 }
+ALLOWED_CREDIT_CARD_MIME_TYPES = {
+    "application/pdf",
+    "image/jpeg",
+    "image/png",
+    "image/heic",
+    "image/heif",
+}
 
 
 def _detect_mime_type(content_bytes: bytes) -> str:
@@ -1111,6 +1118,136 @@ def _parse_bank_statement(file_stream, filename: str) -> list:
     return transactions
 
 
+# ── Credit card statement parser ─────────────────────────────────────────────
+
+def _parse_credit_card_statement(file_stream, filename: str) -> list:
+    """Extract transactions from a TD Platinum Travel Visa (or similar) credit card
+    PDF or image statement. Each line has the format:
+        Mon DD, YYYY   DESCRIPTION   $AMOUNT
+    or  Mon DD, YYYY   DESCRIPTION   $AMOUNT  (credit)
+
+    Internal auth holds (TEMP AUTH) are skipped. Payments are stored as positive
+    amounts with category='payment'. All other debits use _auto_categorize."""
+    import re
+    import io
+    import pdfplumber
+
+    transactions = []
+
+    file_stream.seek(0)
+    content = file_stream.read()
+    mime = _detect_mime_type(content)
+
+    text = ""
+    try:
+        if mime == "application/pdf":
+            file_stream.seek(0)
+            with pdfplumber.open(file_stream) as pdf:
+                for page in pdf.pages:
+                    t = page.extract_text() or ""
+                    text += t + "\n"
+        elif mime in ("image/jpeg", "image/png"):
+            file_stream.seek(0)
+            text = _image_to_text(file_stream)
+        elif mime == "image/heic":
+            file_stream.seek(0)
+            try:
+                import pillow_heif
+                heif_file = pillow_heif.open_heif(file_stream.read())
+                img = heif_file.convert("RGB")
+                buf = io.BytesIO()
+                img.save(buf, format="JPEG", quality=85)
+                buf.seek(0)
+                with pdfplumber.open(buf) as pdf:
+                    for page in pdf.pages:
+                        t = page.extract_text() or ""
+                        text += t + "\n"
+            except Exception as exc:
+                print(f"[credit_card] HEIC parse error: {exc}")
+                file_stream.seek(0)
+                from PIL import Image
+                img = Image.open(file_stream).convert("RGB")
+                buf = io.BytesIO()
+                img.save(buf, format="JPEG", quality=85)
+                buf.seek(0)
+                text = _image_to_text(buf)
+    except Exception as exc:
+        print(f"[credit_card] parse error: {exc}")
+        return transactions
+
+    # TD-format date pattern: "Mar 28, 2026"
+    DATE_RE = re.compile(r"^([A-Z][a-z]{2})\s+(\d{1,2}),?\s+(\d{4})\b")
+    # Amount: $ followed by digits, optional (credit) suffix
+    AMT_RE = re.compile(r"\$([\d,]+\.\d{2})((?:\s*\(credit\))?)")
+
+    month_map = {
+        "Jan": 1, "Feb": 2, "Mar": 3, "Apr": 4, "May": 5, "Jun": 6,
+        "Jul": 7, "Aug": 8, "Sep": 9, "Oct": 10, "Nov": 11, "Dec": 12,
+    }
+
+    for line in text.split("\n"):
+        line_s = line.strip()
+        if len(line_s) < 8:
+            continue
+
+        date_m = DATE_RE.match(line_s)
+        if not date_m:
+            continue
+
+        mon_str, day_str, yr_str = date_m.groups()
+        mon = month_map.get(mon_str)
+        if not mon:
+            continue
+
+        # Skip TEMP AUTH / pending — these are internal auth holds, not real transactions
+        remaining = line_s[date_m.end() :]
+        if "TEMP AUTH" in remaining.upper() or "PENDING" in remaining.upper():
+            continue
+
+        # Find the $ amount on this line
+        amt_m = AMT_RE.search(remaining)
+        if not amt_m:
+            continue
+
+        raw_amount = float(amt_m.group(1).replace(",", ""))
+        is_credit = bool(amt_m.group(2)) or "(credit)" in remaining
+
+        # Build the full date
+        try:
+            trans_date = datetime(int(yr_str), mon, int(day_str)).date()
+        except ValueError:
+            continue
+
+        # Description = everything between the date and the $ amount
+        before_dollar = remaining[: amt_m.start()].strip()
+        # Clean up description — remove multiple spaces, strip
+        desc_raw = re.sub(r"\s+", " ", before_dollar).strip()[:200]
+
+        if not desc_raw or len(desc_raw) < 2:
+            continue
+
+        desc_scrubbed = _scrub_pii(desc_raw)
+
+        # Categorize
+        if is_credit or "PAYMENT" in desc_raw.upper():
+            # Payments/credits reduce balance owed — store as positive to reduce debt
+            amount = raw_amount
+            category = "payment"
+        else:
+            # Debit — expenses are negative in the Transaction model
+            amount = -raw_amount
+            category = _auto_categorize(desc_scrubbed)
+
+        transactions.append({
+            "date": trans_date.isoformat(),
+            "description": desc_scrubbed,
+            "amount": round(amount, 2),
+            "category": category,
+        })
+
+    return transactions
+
+
 @app.route("/financial")
 @login_required
 def financial():
@@ -1203,6 +1340,36 @@ def _handle_financial_upload():
                 amount=t["amount"],
                 category=t.get("category", "other"),
                 source="bank_statement",
+            )
+            db.session.add(entry)
+            saved.append(entry)
+
+        db.session.commit()
+        return jsonify({"message": f"{len(saved)} transactions imported", "count": len(saved)}), 200
+
+    elif upload_type == "credit_card":
+        # MIME type validation
+        file.stream.seek(0)
+        header = file.stream.read(512)
+        mime = _detect_mime_type(header)
+        if not _allowed_mime(mime, ALLOWED_CREDIT_CARD_MIME_TYPES):
+            return jsonify({"error": f"Unsupported file type '{mime}' for credit card statement. Please upload a PDF, JPEG, PNG, or HEIC image."}), 400
+        file.stream.seek(0)
+
+        transactions = _parse_credit_card_statement(file.stream, filename)
+
+        if not transactions:
+            return jsonify({"type": "credit_card", "data": [], "raw_preview": "Could not auto-parse. Please add transactions manually."}), 200
+
+        saved = []
+        for t in transactions:
+            entry = Transaction(
+                user_id=current_user.id,
+                date=datetime.strptime(t["date"], "%Y-%m-%d").date(),
+                description=t["description"],
+                amount=t["amount"],
+                category=t.get("category", "other"),
+                source="credit_card",
             )
             db.session.add(entry)
             saved.append(entry)
