@@ -1120,6 +1120,14 @@ def financial():
 @app.route("/api/financial/upload", methods=["POST"])
 @login_required
 def financial_upload():
+    try:
+        return _handle_financial_upload()
+    except Exception as exc:
+        print(f"[financial_upload] unhandled error: {exc}")
+        return jsonify({"error": f"Upload processing failed: {str(exc)}"}), 500
+
+
+def _handle_financial_upload():
     file = request.files.get("file")
     upload_type = request.form.get("type", "manual")
 
