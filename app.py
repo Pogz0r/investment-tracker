@@ -1208,13 +1208,18 @@ def _parse_bank_statement(file_stream, filename: str) -> list:
 # ── Credit card statement parser ─────────────────────────────────────────────
 
 def _parse_credit_card_statement(file_stream, filename: str) -> list:
-    """Extract transactions from a TD Platinum Travel Visa (or similar) credit card
-    PDF or image statement. Each line has the format:
-        Mon DD, YYYY   DESCRIPTION   $AMOUNT
-    or  Mon DD, YYYY   DESCRIPTION   $AMOUNT  (credit)
+    """Extract transactions from a TD Platinum Travel Visa or Home Trust Visa
+    credit card PDF/image statement.
 
-    Internal auth holds (TEMP AUTH) are skipped. Payments are stored as positive
-    amounts with category='payment'. All other debits use _auto_categorize."""
+    TD Visa format (Mon DD, YYYY | DESCRIPTION | $AMOUNT)
+    Home Trust format: multi-column table with Trans Date | Description | Amount
+      - ACCOUNT ACTIVITY section: purchases/debits
+      - Payments, Adjustments and Others section: credits/payments
+      - Dates: DD-MMM-YYYY or MM/DD/YY (OCR: "O" instead of "0", "O0" = "00")
+      - Negative amounts use "-" suffix (OCR: "$0.70-" or "0.70-")
+
+    Image-based PDFs are OCR'd via pdfplumber page-to-image + pytesseract.
+    Disputes are skipped (already reconciled in Payments section)."""
     import re
     import io
     import pdfplumber
@@ -1233,6 +1238,26 @@ def _parse_credit_card_statement(file_stream, filename: str) -> list:
                 for page in pdf.pages:
                     t = page.extract_text() or ""
                     text += t + "\n"
+
+            # Image-based PDF — no text extracted; fall back to OCR
+            if not text.strip():
+                print("[credit_card] PDF has no extractable text; running OCR...")
+                file_stream.seek(0)
+                with pdfplumber.open(file_stream) as pdf:
+                    for page in pdf.pages:
+                        img = page.to_image(resolution=200)
+                        buf = io.BytesIO()
+                        img.save(buf, format="PNG")
+                        buf.seek(0)
+                        try:
+                            from PIL import Image
+                            import pytesseract
+                            ocr_img = Image.open(buf)
+                            text += pytesseract.image_to_string(ocr_img) + "\n"
+                        except ImportError:
+                            # pytesseract or PIL not available — skip OCR
+                            print("[credit_card] OCR libs not available; cannot parse image PDF")
+                            break
         elif mime in ("image/jpeg", "image/png"):
             file_stream.seek(0)
             text = _image_to_text(file_stream)
@@ -1262,15 +1287,226 @@ def _parse_credit_card_statement(file_stream, filename: str) -> list:
         print(f"[credit_card] parse error: {exc}")
         return transactions
 
-    # TD-format date pattern: "Mar 28, 2026"
-    DATE_RE = re.compile(r"^([A-Z][a-z]{2})\s+(\d{1,2}),?\s+(\d{4})\b")
-    # Amount: $ followed by digits, optional (credit) suffix
-    AMT_RE = re.compile(r"\$([\d,]+\.\d{2})((?:\s*\(credit\))?)")
+    # ── Detect card type ─────────────────────────────────────────────────────
+    upper_text = text.upper()
+    is_hometrust = bool(
+        re.search(r"HOMETRUST|HOME\s+TRUST", upper_text)
+        and re.search(r"ACCOUNT\s+ACTIVITY", upper_text)
+    )
+
+    if is_hometrust:
+        transactions = _parse_hometrust_transactions(text)
+    else:
+        transactions = _parse_td_visa_transactions(text)
+
+    return transactions
+
+
+def _parse_hometrust_transactions(text: str) -> list:
+    """Parse Home Trust Visa statement — multi-column OCR output.
+
+    ACCOUNT ACTIVITY section: Trans Date | Description | Amount
+    Payments, Adjustments and Others section: same columns, amounts are credits.
+
+    OCR artifacts handled:
+      - "O" -> "0" in dates (e.g. "O14" = "01/14")
+      - "O0" -> "00"
+      - "$" may be missing before amounts
+      - Negative amounts: "0.70-" (trailing dash) instead of "-$0.70"
+      - Garbled text in description field
+    """
+    import re
+    transactions = []
+
+    month_map = {
+        "JAN": 1, "FEB": 2, "MAR": 3, "APR": 4, "MAY": 5, "JUN": 6,
+        "JUL": 7, "AUG": 8, "SEP": 9, "OCT": 10, "NOV": 11, "DEC": 12,
+    }
+
+    # Extract statement period so we can handle YY year format
+    period_m = re.search(
+        r"Statement\s+Period[:\s]+(\d{1,2}[-/]\d{1,2}[-/]\d{2,4})\s*[-�E]\s*(\d{1,2}[-/]\d{1,2}[-/]\d{2,4})",
+        text, re.IGNORECASE
+    )
+    stmt_year = None
+    if period_m:
+        yr_part = re.search(r"\d{4}|\d{2}$", period_m.group(2))
+        if yr_part:
+            raw_yr = yr_part.group()
+            stmt_year = int(raw_yr) if len(raw_yr) == 4 else 2000 + int(raw_yr)
+
+    # Split text into ACCOUNT ACTIVITY and Payments sections
+    # OCR garbles "Adjustments" → "iments" or partial chars; be flexible
+    payments_marker = re.compile(
+        r"Payments?\s*,?\s*[A-Za-z]*ments?\s*(?:and\s*Others)?",
+        re.IGNORECASE
+    )
+    ac_marker = re.compile(r"ACCOUNT\s+ACTIVITY", re.IGNORECASE)
+
+    sections = {}
+    current_section = None
+    for line in text.split("\n"):
+        if ac_marker.search(line):
+            current_section = "activity"
+            sections[current_section] = []
+        elif payments_marker.search(line):
+            current_section = "payments"
+            sections[current_section] = []
+        elif current_section:
+            sections[current_section].append(line)
+
+    def fix_date(s: str):
+        """Fix OCR 'O'->'0' artifacts in date fields."""
+        return s.replace("O", "0").replace("Q", "0")
+
+    def parse_date(date_str: str, stmt_year=None):
+        """Parse DD-MMM-YYYY or MM/DD date strings, handling OCR artifacts."""
+        date_str = fix_date(date_str.strip())
+        # Try DD-MMM-YYYY (e.g. "28-FEB-2026")
+        m = re.match(r"(\d{1,2})-([A-Za-z]{3})-(\d{2,4})", date_str)
+        if m:
+            day, mon_str, yr_str = m.groups()
+            mon = month_map.get(mon_str.upper())
+            yr = int(yr_str) if len(yr_str) == 4 else 2000 + int(yr_str)
+            if mon:
+                try:
+                    return datetime(int(yr), mon, int(day)).date()
+                except ValueError:
+                    pass
+        # Try MM/DD or MM/DD/YY (year is optional — transactions only show MM/DD)
+        m = re.match(r"(\d{1,2})/(\d{1,2})(/(\d{2,4}))?$", date_str)
+        if m:
+            mon_int = int(m.group(1))
+            day = int(m.group(2))
+            yr_raw = m.group(4)
+            if yr_raw is None:
+                yr = stmt_year or 2026
+            else:
+                yr = int(yr_raw) if len(yr_raw) == 4 else 2000 + int(yr_raw)
+            if 1 <= mon_int <= 12 and 1 <= day <= 31:
+                try:
+                    return datetime(yr, mon_int, day).date()
+                except ValueError:
+                    pass
+        return None
+
+    def parse_amount(amt_str: str):
+        """Parse amount string: handles '$', commas, trailing '-' for credit."""
+        amt_str = amt_str.strip().replace(",", "").replace("$", "")
+        is_credit = amt_str.endswith("-")
+        if is_credit:
+            amt_str = amt_str[:-1]
+        try:
+            return float(amt_str), is_credit
+        except ValueError:
+            return None, False
+
+    def parse_transaction_row(line: str, section: str):
+        """Parse a Home Trust transaction row (multi-column OCR layout)."""
+        line_s = line.strip()
+        if len(line_s) < 5:
+            return None
+
+        # Skip header/metadata lines
+        if re.match(r"^(Trans|Post|Reference|Description|Amount|Credit|Charge|Category|Balance|Interest|Minimum|Payment|Total|Statement|Page|ACCOUNT|PAYMENT|Summary|Cash|Finance)", line_s, re.IGNORECASE):
+            return None
+        if re.match(r"^\s*[-=]{3,}", line_s):
+            return None
+        if re.search(r"FINANCE CHARGE|MINIMUM PAYMENT|PAYMENT DUE|CREDIT LIMIT|AVAILABLE|Reduit|CHARGE SUMMARY|PURCHASE.*RATE|SCORECARD EARNINGS|KEE|BEGINNING|Ending|CASHBACK PAYOUT", line_s, re.IGNORECASE):
+            return None
+
+        # Amount: look for $X.XX or X.XX anywhere on line, prefer at end
+        # Try end-of-line first
+        amt_m = re.search(r"\$?([\d,]+\.\d{2})(-?)\s*$", line_s)
+        if not amt_m:
+            amt_m = re.search(r"\b([\d,]+\.\d{2})(-?)\b", line_s)
+        if not amt_m:
+            return None
+
+        raw_amt_str = amt_m.group(1)
+        trailing_dash = bool(amt_m.group(2)) or line_s.rstrip().endswith("-")
+        is_credit = trailing_dash or (section == "payments")
+
+        # Extract date — first token(s) are transaction/post dates (may have / or -)
+        # Check first 4 tokens to find a valid date
+        tokens = line_s.split()
+        date_parsed = None
+        date_token_len = 0
+        for i, tok in enumerate(tokens[:4]):
+            dp = parse_date(tok, stmt_year)
+            if dp:
+                date_parsed = dp
+                date_token_len = i + 1
+                break
+        if not date_parsed:
+            return None
+
+        # Build description: skip date tokens, remove reference numbers
+        before_amt = line_s[:amt_m.start()].strip()
+        desc_tokens = before_amt.split()[date_token_len:]
+        # Filter out long reference numbers (6+ digits — these are ref numbers)
+        desc_tokens = [t for t in desc_tokens if not re.match(r"^\d{6,}$", t)]
+        desc_clean = re.sub(r"\s+", " ", " ".join(desc_tokens)).strip()
+        # Clean up common OCR artifacts in descriptions
+        desc_clean = (desc_clean
+            .replace(" PURCH:", " | USD").replace(" PURCH", " | USD")
+            .replace("PURCHASE:", "| USD").replace("PURCH: ", "| USD "))
+        desc_clean = re.sub(r"\b(PAGE|Pg)\s+\d+\s+OF\s+\d+\b", "", desc_clean, flags=re.IGNORECASE)
+        desc_clean = desc_clean.strip("|_- ").strip()
+
+        if len(desc_clean) < 2:
+            return None
+
+        # Skip dispute lines (already reconciled in Payments section)
+        if re.search(r"\bDISPUTE\b", desc_clean, re.IGNORECASE):
+            return None
+
+        desc_scrubbed = _scrub_pii(desc_clean[:200])
+        amount_val, _ = parse_amount(raw_amt_str)
+        if amount_val is None:
+            return None
+
+        if is_credit or section == "payments":
+            amount = amount_val
+            category = "payment"
+        else:
+            amount = -amount_val
+            category = _auto_categorize(desc_scrubbed)
+
+        return {
+            "date": date_parsed.isoformat(),
+            "description": desc_scrubbed,
+            "amount": round(amount, 2),
+            "category": category,
+        }
+
+    # Parse ACCOUNT ACTIVITY rows
+    for line in sections.get("activity", []):
+        tx = parse_transaction_row(line, "activity")
+        if tx:
+            transactions.append(tx)
+
+    # Parse Payments, Adjustments and Others rows
+    for line in sections.get("payments", []):
+        tx = parse_transaction_row(line, "payments")
+        if tx:
+            transactions.append(tx)
+
+    return transactions
+
+
+def _parse_td_visa_transactions(text: str) -> list:
+    """Parse TD Visa format: Mon DD, YYYY | DESCRIPTION | $AMOUNT [credit]."""
+    import re
+    transactions = []
 
     month_map = {
         "Jan": 1, "Feb": 2, "Mar": 3, "Apr": 4, "May": 5, "Jun": 6,
         "Jul": 7, "Aug": 8, "Sep": 9, "Oct": 10, "Nov": 11, "Dec": 12,
     }
+
+    DATE_RE = re.compile(r"^([A-Z][a-z]{2})\s+(\d{1,2}),?\s+(\d{4})\b")
+    AMT_RE = re.compile(r"\$([\d,]+\.\d{2})((?:\s*\(credit\))?)")
 
     for line in text.split("\n"):
         line_s = line.strip()
@@ -1286,12 +1522,10 @@ def _parse_credit_card_statement(file_stream, filename: str) -> list:
         if not mon:
             continue
 
-        # Skip TEMP AUTH / pending — these are internal auth holds, not real transactions
         remaining = line_s[date_m.end() :]
         if "TEMP AUTH" in remaining.upper() or "PENDING" in remaining.upper():
             continue
 
-        # Find the $ amount on this line
         amt_m = AMT_RE.search(remaining)
         if not amt_m:
             continue
@@ -1299,15 +1533,12 @@ def _parse_credit_card_statement(file_stream, filename: str) -> list:
         raw_amount = float(amt_m.group(1).replace(",", ""))
         is_credit = bool(amt_m.group(2)) or "(credit)" in remaining
 
-        # Build the full date
         try:
             trans_date = datetime(int(yr_str), mon, int(day_str)).date()
         except ValueError:
             continue
 
-        # Description = everything between the date and the $ amount
         before_dollar = remaining[: amt_m.start()].strip()
-        # Clean up description — remove multiple spaces, strip
         desc_raw = re.sub(r"\s+", " ", before_dollar).strip()[:200]
 
         if not desc_raw or len(desc_raw) < 2:
@@ -1315,13 +1546,10 @@ def _parse_credit_card_statement(file_stream, filename: str) -> list:
 
         desc_scrubbed = _scrub_pii(desc_raw)
 
-        # Categorize
         if is_credit or "PAYMENT" in desc_raw.upper():
-            # Payments/credits reduce balance owed — store as positive to reduce debt
             amount = raw_amount
             category = "payment"
         else:
-            # Debit — expenses are negative in the Transaction model
             amount = -raw_amount
             category = _auto_categorize(desc_scrubbed)
 
@@ -1333,6 +1561,8 @@ def _parse_credit_card_statement(file_stream, filename: str) -> list:
         })
 
     return transactions
+
+
 
 
 @app.route("/financial")
