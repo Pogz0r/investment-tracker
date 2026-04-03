@@ -65,11 +65,11 @@ function renderSummary(data) {
   const s = data.monthly_series || [];
   const last = s[s.length - 1] || {};
 
-  // Monthly gross/net — show last month values
+  // Monthly gross/net — show last month values (sum, not average)
   document.getElementById("monthlyGross").textContent = fmtCad(last.gross_income || 0);
-  document.getElementById("avgPayPeriod").textContent = data.income_entry_count
-    ? `avg over ${data.income_entry_count} pay periods`
-    : "avg per pay period";
+  document.getElementById("avgPayPeriod").textContent = last.entry_count
+    ? `${last.entry_count} ${last.entry_count === 1 ? 'entry' : 'entries'} this month`
+    : "total for month";
   document.getElementById("monthlyNet").textContent = fmtCad(last.net_income || 0);
 
   const expenses = last.expenses || 0;

@@ -922,7 +922,7 @@ def _parse_driver_payment_form(text: str) -> dict:
     # Employer: numeric corp number + company name ending in INC, LTD, LLC, CORP, etc.
     # e.g. "Company   1000944163 ONTARIO INC."
     company_match = re.search(
-        r"Company\s{2,}([0-9]+\s+[A-Za-z\s]+?(?:INC\.|INC|LLC|LTD|CORP))", text, re.IGNORECASE
+        r"Company\s+([0-9]+\s+[A-Za-z\s]+?(?:INC\.|INC|LLC|LTD|CORP))", text, re.IGNORECASE
     )
     if company_match:
         result["employer"] = company_match.group(1).strip()[:100]
@@ -1388,6 +1388,22 @@ def _parse_hometrust_transactions(text: str) -> list:
                     return datetime(yr, mon_int, day).date()
                 except ValueError:
                     pass
+        # Handle MMDD OCR artifact (e.g. "0114" → 01/14, "015" → 01/05)
+        m = re.match(r"(\d{1,2})(\d{2})$", date_str)
+        if m:
+            first, second = int(m.group(1)), int(m.group(2))
+            # Try MM = first, DD = second
+            if 1 <= first <= 12 and 1 <= second <= 31:
+                try:
+                    return datetime(stmt_year or 2026, first, second).date()
+                except ValueError:
+                    pass
+            # Try MM = second, DD = first (less common)
+            if 1 <= second <= 12 and 1 <= first <= 31:
+                try:
+                    return datetime(stmt_year or 2026, second, first).date()
+                except ValueError:
+                    pass
         return None
 
     def parse_amount(amt_str: str):
@@ -1416,8 +1432,10 @@ def _parse_hometrust_transactions(text: str) -> list:
             return None
 
         # Amount: look for $X.XX or X.XX anywhere on line, prefer at end
-        # Try end-of-line first
-        amt_m = re.search(r"\$?([\d,]+\.\d{2})(-?)\s*$", line_s)
+        # \$ ? handles "$ 0.70" OCR artifact (space between $ and number)
+        amt_m = re.search(r"\$ ?([\d,]+\.\d{2})(-?)\s*$", line_s)
+        if not amt_m:
+            amt_m = re.search(r"\$ ?([\d,]+\.\d{2})(-?)\b", line_s)
         if not amt_m:
             amt_m = re.search(r"\b([\d,]+\.\d{2})(-?)\b", line_s)
         if not amt_m:
@@ -1876,6 +1894,7 @@ def financial_summary():
             "expenses": round(exp, 2),
             "savings": round(savings, 2),
             "savings_rate": round(rate, 1),
+            "entry_count": monthly_income.get((yr, mo), {}).get("count", 0),
         })
 
     # Top 3 expense categories
