@@ -814,6 +814,124 @@ document.getElementById("editLiquidCashForm").addEventListener("submit", async (
   }
 });
 
+
+
+// ── table sorting helpers ──────────────────────────────────────────────────
+
+function getSortIndicator(th) {
+  return th.querySelector('.sort-indicator') || null;
+}
+
+function applySortIndicator(th, dir) {
+  const el = getSortIndicator(th);
+  if (el) el.textContent = dir === 'asc' ? '▲' : dir === 'desc' ? '▼' : '';
+}
+
+function clearSortIndicators(selector) {
+  document.querySelectorAll(selector + ' th .sort-indicator').forEach(el => { el.textContent = ''; });
+}
+
+// ── sort state ──────────────────────────────────────────────────────────────
+
+let stocksSortKey = null;
+let stocksSortDir = 'desc';
+
+let cryptoSortKey = null;
+let cryptoSortDir = 'desc';
+
+let watchlistSortKey = null;
+let watchlistSortDir = 'desc';
+
+// ── sort functions ──────────────────────────────────────────────────────────
+
+function sortStocks(stocks, key, dir) {
+  return [...stocks].sort((a, b) => {
+    let av = a[key], bv = b[key];
+    if (typeof av === 'string') { av = av.toLowerCase(); bv = bv.toLowerCase(); }
+    else { av = parseFloat(av) || 0; bv = parseFloat(bv) || 0; }
+    if (av < bv) return dir === 'asc' ? -1 : 1;
+    if (av > bv) return dir === 'asc' ? 1 : -1;
+    return 0;
+  });
+}
+
+function sortCrypto(crypto, key, dir) {
+  return [...crypto].sort((a, b) => {
+    let av = a[key], bv = b[key];
+    if (typeof av === 'string') { av = av.toLowerCase(); bv = bv.toLowerCase(); }
+    else { av = parseFloat(av) || 0; bv = parseFloat(bv) || 0; }
+    if (av < bv) return dir === 'asc' ? -1 : 1;
+    if (av > bv) return dir === 'asc' ? 1 : -1;
+    return 0;
+  });
+}
+
+function sortWatchlist(items, key, dir) {
+  return [...items].sort((a, b) => {
+    let av = a[key], bv = b[key];
+    if (key === 'day_change_pct') { av = parseFloat(av) || 0; bv = parseFloat(bv) || 0; }
+    else if (typeof av === 'string') { av = av.toLowerCase(); bv = bv.toLowerCase(); }
+    else { av = parseFloat(av) || 0; bv = parseFloat(bv) || 0; }
+    if (av < bv) return dir === 'asc' ? -1 : 1;
+    if (av > bv) return dir === 'asc' ? 1 : -1;
+    return 0;
+  });
+}
+
+// ── attach sort handlers ────────────────────────────────────────────────────
+
+document.querySelectorAll('#stocksTable th[data-sort]').forEach(th => {
+  th.style.cursor = 'pointer';
+  th.addEventListener('click', () => {
+    const key = th.dataset.sort;
+    if (stocksSortKey === key) {
+      stocksSortDir = stocksSortDir === 'asc' ? 'desc' : 'asc';
+    } else {
+      stocksSortKey = key;
+      stocksSortDir = th.dataset.dir || 'asc';
+      clearSortIndicators('#stocksTable');
+    }
+    const sorted = sortStocks(lastData?.stocks || [], key, stocksSortDir);
+    renderStocks(sorted);
+    applySortIndicator(th, stocksSortDir);
+  });
+});
+
+document.querySelectorAll('#cryptoTable th[data-sort]').forEach(th => {
+  th.style.cursor = 'pointer';
+  th.addEventListener('click', () => {
+    const key = th.dataset.sort;
+    if (cryptoSortKey === key) {
+      cryptoSortDir = cryptoSortDir === 'asc' ? 'desc' : 'asc';
+    } else {
+      cryptoSortKey = key;
+      cryptoSortDir = th.dataset.dir || 'asc';
+      clearSortIndicators('#cryptoTable');
+    }
+    const sorted = sortCrypto(lastData?.crypto || [], key, cryptoSortDir);
+    renderCrypto(sorted);
+    applySortIndicator(th, cryptoSortDir);
+  });
+});
+
+document.querySelectorAll('.watchlist-table th[data-sort]').forEach(th => {
+  th.style.cursor = 'pointer';
+  th.addEventListener('click', () => {
+    const key = th.dataset.sort;
+    if (watchlistSortKey === key) {
+      watchlistSortDir = watchlistSortDir === 'asc' ? 'desc' : 'asc';
+    } else {
+      watchlistSortKey = key;
+      watchlistSortDir = th.dataset.dir || 'asc';
+      clearSortIndicators('.watchlist-table');
+    }
+    const sorted = sortWatchlist(lastData?.watchlist || [], key, watchlistSortDir);
+    renderWatchlist(sorted);
+    applySortIndicator(th, watchlistSortDir);
+  });
+});
+
+
 // ── init ───────────────────────────────────────────────────────────────────
 
 fetchPortfolio();
