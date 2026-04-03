@@ -2002,10 +2002,14 @@ def edit_income_entry(entry_id):
 def edit_transaction(transaction_id):
     t = Transaction.query.filter_by(id=transaction_id, user_id=current_user.id).first_or_404()
     data = request.get_json()
+    if "date" in data:
+        t.date = datetime.strptime(data["date"], "%Y-%m-%d").date()
+    if "description" in data:
+        t.description = data["description"][:512]
+    if "amount" in data:
+        t.amount = float(data["amount"])
     if "category" in data:
         t.category = data["category"]
-    if "description" in data:
-        t.description = data["description"][:256]
     db.session.commit()
     return jsonify({"success": True})
 

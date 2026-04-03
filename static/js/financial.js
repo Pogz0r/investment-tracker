@@ -319,6 +319,7 @@ function renderFilteredTransactions() {
       <td class="${t.amount >= 0 ? "positive" : "negative"}">${t.amount >= 0 ? "+" : ""}${fmtCad(t.amount)}</td>
       <td><span class="income-sub">${t.source === "bank_statement" ? "Bank" : "Manual"}</span></td>
       <td class="row-actions">
+        <button class="btn-edit" onclick="openTransEdit(${t.id})">Edit</button>
         <button class="btn-remove" onclick="deleteTransaction(${t.id})">Delete</button>
       </td>
     </tr>`).join("");
@@ -350,7 +351,7 @@ async function fetchIncomeEntries() {
 
 async function fetchTransactions() {
   try {
-    const res = await fetch("/api/financial/transactions?per_page=50");
+    const res = await fetch("/api/financial/transactions?per_page=500");
     if (!res.ok) return;
     const data = await res.json();
     renderTransactions(data.transactions || []);
@@ -763,6 +764,7 @@ function renderFilteredTransactionsWithData(display) {
       <td class="${t.amount >= 0 ? "positive" : "negative"}">${t.amount >= 0 ? "+" : ""}${fmtCad(t.amount)}</td>
       <td><span class="income-sub">${t.source === "bank_statement" ? "Bank" : "Manual"}</span></td>
       <td class="row-actions">
+        <button class="btn-edit" onclick="openTransEdit(${t.id})">Edit</button>
         <button class="btn-remove" onclick="deleteTransaction(${t.id})">Delete</button>
       </td>
     </tr>`).join("");
@@ -796,6 +798,81 @@ function renderFilteredTransactions() {
       </td>
     </tr>`).join("");
 }
+
+// ── inline transaction edit ───────────────────────────────────────────────
+
+function openTransEdit(id) {
+  const t = finTransactions.find(trans => trans.id === id);
+  if (!t) return;
+  const tbody = document.getElementById("transactionsBody");
+  const rows = tbody.querySelectorAll("tr[data-trans-id]");
+  const row = Array.from(rows).find(r => parseInt(r.dataset.transId) === id);
+  if (!row) return;
+
+  // Build edit-mode row
+  const selCat = buildCatSelect(t.category);
+  selCat.className = "cat-edit-select";
+  selCat.style.cssText = "background:var(--bg-card-alt);border:1px solid var(--border);border-radius:var(--radius-sm);color:var(--text);font-family:var(--font-mono);font-size:.75rem;padding:2px 6px;outline:none;cursor:pointer;min-width:120px;";
+
+  row.innerHTML = `
+    <tr data-trans-id="${t.id}" data-edit="true">
+      <td><input type="date" class="trans-edit-input" id="editDate_${id}" value="${t.date}" style="background:var(--bg-card-alt);border:1px solid var(--border);border-radius:var(--radius-sm);color:var(--text);font-family:var(--font-mono);font-size:.75rem;padding:2px 6px;outline:none;width:130px;" /></td>
+      <td><input type="text" class="trans-edit-input" id="editDesc_${id}" value="${t.description.replace(/"/g, "&quot;")}" maxlength="512" style="background:var(--bg-card-alt);border:1px solid var(--border);border-radius:var(--radius-sm);color:var(--text);font-family:var(--font-ui);font-size:.75rem;padding:2px 6px;outline:none;width:200px;" /></td>
+      <td id="editCatCell_${id}"></td>
+      <td><input type="number" class="trans-edit-input" id="editAmount_${id}" value="${t.amount}" step="0.01" style="background:var(--bg-card-alt);border:1px solid var(--border);border-radius:var(--radius-sm);color:var(--text);font-family:var(--font-mono);font-size:.75rem;padding:2px 6px;outline:none;width:100px;" /></td>
+      <td><span class="income-sub">${t.source === "bank_statement" ? "Bank" : "Manual"}</span></td>
+      <td class="row-actions">
+        <button class="btn-edit" onclick="saveTransEdit(${id})">Save</button>
+        <button class="btn-remove" onclick="cancelTransEdit(${id})">Cancel</button>
+      </td>
+    </tr>`;
+
+  document.getElementById(`editCatCell_${id}`).appendChild(selCat);
+  document.getElementById(`editDate_${id}`).focus();
+}
+
+window.openTransEdit = openTransEdit;
+
+function cancelTransEdit(id) {
+  renderFilteredTransactions();
+}
+
+window.cancelTransEdit = cancelTransEdit;
+
+async function saveTransEdit(id) {
+  const dateVal = document.getElementById(`editDate_${id}`)?.value;
+  const descVal = document.getElementById(`editDesc_${id}`)?.value.trim();
+  const amountVal = parseFloat(document.getElementById(`editAmount_${id}`)?.value);
+  const catVal = document.getElementById(`editCatCell_${id}`)?.querySelector("select")?.value;
+
+  if (!dateVal || !descVal || isNaN(amountVal)) {
+    alert("Date, description, and amount are required.");
+    return;
+  }
+
+  try {
+    const res = await fetch(`/api/transaction/edit/${id}`, {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ date: dateVal, description: descVal, amount: amountVal, category: catVal }),
+    });
+    if (res.ok) {
+      // Update local state
+      const t = finTransactions.find(tr => tr.id === id);
+      if (t) { t.date = dateVal; t.description = descVal; t.amount = amountVal; t.category = catVal; }
+      renderFilteredTransactions();
+      renderFilteredExpenses();
+    } else {
+      const data = await res.json();
+      alert(data.error || "Failed to save transaction");
+    }
+  } catch (err) {
+    console.error("Failed to save transaction:", err);
+    alert("Network error. Please try again.");
+  }
+}
+
+window.saveTransEdit = saveTransEdit;
 
 // ── init ─────────────────────────────────────────────────────────────────
 
