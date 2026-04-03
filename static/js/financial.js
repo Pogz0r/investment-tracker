@@ -65,29 +65,37 @@ function renderSummary(data) {
   const s = data.monthly_series || [];
   const last = s[s.length - 1] || {};
 
-  // Monthly gross/net — show last month values (sum, not average)
-  document.getElementById("monthlyGross").textContent = fmtCad(last.gross_income || 0);
-  document.getElementById("avgPayPeriod").textContent = last.entry_count
-    ? `${last.entry_count} ${last.entry_count === 1 ? 'entry' : 'entries'} this month`
-    : "total for month";
-  document.getElementById("monthlyNet").textContent = fmtCad(last.net_income || 0);
+  // YTD averages as primary values
+  const ytdGross = data.ytd_avg_gross || 0;
+  const ytdNet = data.ytd_avg_net || 0;
+  const ytdExpenses = data.ytd_avg_expenses || 0;
+  const ytdRate = data.ytd_avg_savings_rate || 0;
+  const monthsWithEntries = data.months_with_entries || 0;
+  const currentYear = new Date().getFullYear();
 
-  const expenses = last.expenses || 0;
-  document.getElementById("monthlyExpenses").textContent = expenses ? "-" + fmtCad(expenses) : "$0.00";
+  document.getElementById("monthlyGross").textContent = fmtCad(ytdGross);
+  const avgSub = monthsWithEntries > 0
+    ? `${monthsWithEntries} ${monthsWithEntries === 1 ? 'month' : 'months'} w/ entries · ${currentYear} YTD`
+    : `${currentYear} YTD avg`;
+  document.getElementById("avgPayPeriod").textContent = avgSub;
+
+  document.getElementById("monthlyNet").textContent = fmtCad(ytdNet);
+  const netSub = data.current_month_net !== undefined && data.current_month_net > 0
+    ? `this month: ${fmtCad(data.current_month_net)}`
+    : "CAD";
+  document.getElementById("netIncomeSub").textContent = netSub;
+
+  document.getElementById("monthlyExpenses").textContent = ytdExpenses ? "-" + fmtCad(ytdExpenses) : "$0.00";
   const topCat = (data.top_expense_categories || [])[0];
   document.getElementById("topCategory").textContent = topCat
     ? `top: ${catLabel(topCat.category)}`
     : "top: —";
 
-  const rate = last.savings_rate || data.overall_savings_rate || 0;
   const rateEl = document.getElementById("savingsRate");
-  rateEl.textContent = fmt(rate, 1) + "%";
-  rateEl.className = "card-value " + (rate >= 0 ? "positive" : "negative");
+  rateEl.textContent = fmt(ytdRate, 1) + "%";
+  rateEl.className = "card-value " + (ytdRate >= 0 ? "positive" : "negative");
 
-  const savingsSub = document.getElementById("savingsSub");
-  savingsSub.textContent = data.overall_savings_rate !== undefined
-    ? `overall: ${fmt(data.overall_savings_rate, 1)}%`
-    : "net - expenses";
+  document.getElementById("savingsSub").textContent = `current month: ${fmt(last.savings_rate || 0, 1)}%`;
 
   document.getElementById("transactionCount").textContent = data.transaction_count || 0;
   document.getElementById("incomeEntriesSub").textContent = `${data.income_entry_count || 0} income entries`;
@@ -633,6 +641,161 @@ document.getElementById("transactionForm").addEventListener("submit", async (e) 
 // ── month filter ─────────────────────────────────────────────────────────
 
 document.getElementById("monthFilter")?.addEventListener("change", onMonthFilterChange);
+
+// ── table sorting ─────────────────────────────────────────────────────────
+
+function getSortIndicator(th) {
+  const el = th.querySelector(".sort-indicator");
+  return el || null;
+}
+
+function applySortIndicator(th, dir) {
+  const indicator = getSortIndicator(th);
+  if (indicator) {
+    indicator.textContent = dir === "asc" ? "▲" : dir === "desc" ? "▼" : "";
+  }
+}
+
+function clearSortIndicators(tableId) {
+  document.querySelectorAll(`#${tableId} th .sort-indicator`).forEach(el => {
+    el.textContent = "";
+  });
+}
+
+function sortEntries(entries, key, dir) {
+  return [...entries].sort((a, b) => {
+    let av = a[key], bv = b[key];
+    if (key === "deductions") {
+      const da = a.deductions || {}, db = b.deductions || {};
+      av = Object.values(da).reduce((s, v) => s + (parseFloat(v) || 0), 0);
+      bv = Object.values(db).reduce((s, v) => s + (parseFloat(v) || 0), 0);
+    } else if (typeof av === "string") {
+      av = av.toLowerCase(); bv = bv.toLowerCase();
+    }
+    if (av < bv) return dir === "asc" ? -1 : 1;
+    if (av > bv) return dir === "asc" ? 1 : -1;
+    return 0;
+  });
+}
+
+function sortTransactions(transactions, key, dir) {
+  return [...transactions].sort((a, b) => {
+    let av = a[key], bv = b[key];
+    if (key === "date") {
+      av = a.date || ""; bv = b.date || "";
+    } else if (key === "amount") {
+      av = parseFloat(a.amount) || 0; bv = parseFloat(b.amount) || 0;
+    } else if (typeof av === "string") {
+      av = av.toLowerCase(); bv = bv.toLowerCase();
+    }
+    if (av < bv) return dir === "asc" ? -1 : 1;
+    if (av > bv) return dir === "asc" ? 1 : -1;
+    return 0;
+  });
+}
+
+// Income entries sort state
+let incomeSortKey = null;
+let incomeSortDir = "desc";
+
+function clearIncomeSortIndicators() {
+  document.querySelectorAll("#incomeSection th .sort-indicator").forEach(el => { el.textContent = ""; });
+}
+function clearTransSortIndicators() {
+  document.querySelectorAll("#transactionsSection th .sort-indicator").forEach(el => { el.textContent = ""; });
+}
+
+document.querySelectorAll("#incomeSection th[data-sort]").forEach(th => {
+  th.style.cursor = "pointer";
+  th.addEventListener("click", () => {
+    const key = th.dataset.sort;
+    if (incomeSortKey === key) {
+      incomeSortDir = incomeSortDir === "asc" ? "desc" : "asc";
+    } else {
+      incomeSortKey = key;
+      incomeSortDir = th.dataset.dir || "asc";
+      clearIncomeSortIndicators();
+    }
+    const sorted = sortEntries(finEntries, key, incomeSortDir);
+    renderIncomeEntries(sorted);
+    applySortIndicator(th, incomeSortDir);
+  });
+});
+
+// Transactions sort state
+let transSortKey = null;
+let transSortDir = "desc";
+
+document.querySelectorAll("#transactionsSection th[data-sort]").forEach(th => {
+  th.style.cursor = "pointer";
+  th.addEventListener("click", () => {
+    const key = th.dataset.sort;
+    if (transSortKey === key) {
+      transSortDir = transSortDir === "asc" ? "desc" : "asc";
+    } else {
+      transSortKey = key;
+      transSortDir = th.dataset.dir || "asc";
+      clearTransSortIndicators();
+    }
+    const sorted = sortTransactions(finTransactions, key, transSortDir);
+    const filter = currentMonthFilter;
+    let display = sorted;
+    if (filter !== "all") {
+      display = sorted.filter(t => t.date && t.date.startsWith(filter));
+    }
+    renderFilteredTransactionsWithData(display);
+    applySortIndicator(th, transSortDir);
+  });
+});
+
+// Helper to render transactions with already-filtered/sorted data
+function renderFilteredTransactionsWithData(display) {
+  const tbody = document.getElementById("transactionsBody");
+  if (!display || !display.length) {
+    tbody.innerHTML = `<tr class="empty-row"><td colspan="6">${currentMonthFilter === "all" ? "No transactions yet" : "No transactions for selected month"}</td></tr>`;
+    return;
+  }
+  tbody.innerHTML = display.map(t => `
+    <tr data-trans-id="${t.id}">
+      <td>${t.date}</td>
+      <td style="text-align:left;font-family:var(--font-ui)">${t.description}</td>
+      <td class="cat-cell" data-trans-id="${t.id}"><span class="${catClass(t.category)} cat-editable" data-cat="${t.category}" title="Click to change category">${catLabel(t.category)}</span></td>
+      <td class="${t.amount >= 0 ? "positive" : "negative"}">${t.amount >= 0 ? "+" : ""}${fmtCad(t.amount)}</td>
+      <td><span class="income-sub">${t.source === "bank_statement" ? "Bank" : "Manual"}</span></td>
+      <td class="row-actions">
+        <button class="btn-remove" onclick="deleteTransaction(${t.id})">Delete</button>
+      </td>
+    </tr>`).join("");
+}
+
+// Override renderFilteredTransactions to reset sort indicators when data refreshes
+function renderFilteredTransactions() {
+  incomeSortKey = null; incomeSortDir = "desc";
+  transSortKey = null; transSortDir = "desc";
+  clearIncomeSortIndicators();
+  clearTransSortIndicators();
+  const tbody = document.getElementById("transactionsBody");
+  const filter = currentMonthFilter;
+  let display = finTransactions;
+  if (filter !== "all") {
+    display = finTransactions.filter(t => t.date && t.date.startsWith(filter));
+  }
+  if (!display || !display.length) {
+    tbody.innerHTML = `<tr class="empty-row"><td colspan="6">${filter === "all" ? "No transactions yet" : "No transactions for selected month"}</td></tr>`;
+    return;
+  }
+  tbody.innerHTML = display.map(t => `
+    <tr data-trans-id="${t.id}">
+      <td>${t.date}</td>
+      <td style="text-align:left;font-family:var(--font-ui)">${t.description}</td>
+      <td class="cat-cell" data-trans-id="${t.id}"><span class="${catClass(t.category)} cat-editable" data-cat="${t.category}" title="Click to change category">${catLabel(t.category)}</span></td>
+      <td class="${t.amount >= 0 ? "positive" : "negative"}">${t.amount >= 0 ? "+" : ""}${fmtCad(t.amount)}</td>
+      <td><span class="income-sub">${t.source === "bank_statement" ? "Bank" : "Manual"}</span></td>
+      <td class="row-actions">
+        <button class="btn-remove" onclick="deleteTransaction(${t.id})">Delete</button>
+      </td>
+    </tr>`).join("");
+}
 
 // ── init ─────────────────────────────────────────────────────────────────
 

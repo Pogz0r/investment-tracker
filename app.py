@@ -1825,6 +1825,7 @@ def financial_summary():
     """Monthly income, expenses, savings rate for current user."""
     uid = current_user.id
     today = datetime.utcnow().date()
+    current_year = today.year
     six_months_ago = datetime(today.year - (today.month <= 6 and 1 or 0),
                                ((today.month - 6 - 1) % 12) + 1, 1).date()
 
@@ -1905,6 +1906,49 @@ def financial_summary():
     avg_monthly_expenses = total_expenses / 6 if total_expenses else 0.0
     overall_savings_rate = ((total_net - total_expenses) / total_net * 100) if total_net else 0.0
 
+    # ── YTD averages (all entries in current calendar year) ───────────────
+    ytd_income_entries = (IncomeEntry.query
+                           .filter(IncomeEntry.user_id == uid,
+                                   db.extract("year", IncomeEntry.pay_date) == current_year)
+                           .all())
+    ytd_transactions = (Transaction.query
+                         .filter(Transaction.user_id == uid,
+                                 db.extract("year", Transaction.date) == current_year,
+                                 Transaction.amount < 0)
+                         .all())
+
+    # Group YTD income by (year, month) to count months-with-entries
+    ytd_monthly = {}
+    for e in ytd_income_entries:
+        key = (e.pay_date.year, e.pay_date.month)
+        if key not in ytd_monthly:
+            ytd_monthly[key] = {"gross": 0.0, "net": 0.0}
+        ytd_monthly[key]["gross"] += e.gross_income
+        ytd_monthly[key]["net"] += e.net_income
+
+    ytd_expenses_monthly = {}
+    for t in ytd_transactions:
+        key = (t.date.year, t.date.month)
+        if key not in ytd_expenses_monthly:
+            ytd_expenses_monthly[key] = 0.0
+        ytd_expenses_monthly[key] += abs(t.amount)
+
+    months_with_entries = len(ytd_monthly)
+    ytd_total_gross = sum(v["gross"] for v in ytd_monthly.values())
+    ytd_total_net = sum(v["net"] for v in ytd_monthly.values())
+    ytd_total_expenses = sum(ytd_expenses_monthly.values())
+
+    ytd_avg_gross = ytd_total_gross / months_with_entries if months_with_entries else 0.0
+    ytd_avg_net = ytd_total_net / months_with_entries if months_with_entries else 0.0
+    ytd_avg_expenses = ytd_total_expenses / months_with_entries if months_with_entries else 0.0
+    ytd_avg_savings_rate = ((ytd_avg_net - ytd_avg_expenses) / ytd_avg_net * 100) if ytd_avg_net else 0.0
+
+    # Current calendar month values (for secondary display)
+    curr_key = (today.year, today.month)
+    current_month_gross = ytd_monthly.get(curr_key, {}).get("gross", 0.0)
+    current_month_net = ytd_monthly.get(curr_key, {}).get("net", 0.0)
+    current_month_expenses = ytd_expenses_monthly.get(curr_key, 0.0)
+
     return jsonify({
         "monthly_series": monthly_series,
         "total_gross_income": round(total_gross, 2),
@@ -1917,6 +1961,15 @@ def financial_summary():
         "top_expense_categories": [{"category": c, "amount": round(a, 2)} for c, a in top_categories],
         "transaction_count": transaction_count,
         "income_entry_count": len(income_entries),
+        # YTD averages
+        "ytd_avg_gross": round(ytd_avg_gross, 2),
+        "ytd_avg_net": round(ytd_avg_net, 2),
+        "ytd_avg_expenses": round(ytd_avg_expenses, 2),
+        "ytd_avg_savings_rate": round(ytd_avg_savings_rate, 1),
+        "current_month_gross": round(current_month_gross, 2),
+        "current_month_net": round(current_month_net, 2),
+        "current_month_expenses": round(current_month_expenses, 2),
+        "months_with_entries": months_with_entries,
     })
 
 

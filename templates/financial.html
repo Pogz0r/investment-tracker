@@ -41,22 +41,22 @@
     <!-- ========== SUMMARY CARDS ========== -->
     <section class="summary-grid">
       <div class="card summary-card">
-        <div class="card-label">Monthly Gross Income</div>
+        <div class="card-label">YTD Avg Gross Income</div>
         <div class="card-value" id="monthlyGross">$0.00</div>
-        <div class="card-sub" id="avgPayPeriod">avg per pay period</div>
+        <div class="card-sub" id="avgPayPeriod">avg per month · YTD</div>
       </div>
       <div class="card summary-card">
-        <div class="card-label">Monthly Net Income</div>
+        <div class="card-label">YTD Avg Net Income</div>
         <div class="card-value" id="monthlyNet">$0.00</div>
         <div class="card-sub" id="netIncomeSub">CAD</div>
       </div>
       <div class="card summary-card">
-        <div class="card-label">Monthly Expenses</div>
+        <div class="card-label">YTD Avg Expenses</div>
         <div class="card-value negative" id="monthlyExpenses">$0.00</div>
         <div class="card-sub" id="topCategory">top: —</div>
       </div>
       <div class="card summary-card">
-        <div class="card-label">Savings Rate</div>
+        <div class="card-label">YTD Savings Rate</div>
         <div class="card-value" id="savingsRate">0%</div>
         <div class="card-sub" id="savingsSub">net - expenses</div>
       </div>
@@ -128,11 +128,11 @@
         <table class="holdings-table">
           <thead>
             <tr>
-              <th>Pay Date</th>
-              <th>Employer</th>
-              <th>Gross (CAD)</th>
-              <th>Net (CAD)</th>
-              <th>Deductions</th>
+              <th data-sort="pay_date" data-dir="desc">Pay Date <span class="sort-indicator"></span></th>
+              <th data-sort="employer" data-dir="asc">Employer <span class="sort-indicator"></span></th>
+              <th data-sort="gross_income" data-dir="desc">Gross (CAD) <span class="sort-indicator"></span></th>
+              <th data-sort="net_income" data-dir="desc">Net (CAD) <span class="sort-indicator"></span></th>
+              <th data-sort="deductions" data-dir="desc">Deductions <span class="sort-indicator"></span></th>
               <th></th>
             </tr>
           </thead>
@@ -158,11 +158,11 @@
         <table class="holdings-table">
           <thead>
             <tr>
-              <th>Date</th>
-              <th>Description</th>
-              <th>Category</th>
-              <th>Amount (CAD)</th>
-              <th>Source</th>
+              <th data-sort="date" data-dir="desc">Date <span class="sort-indicator"></span></th>
+              <th data-sort="description" data-dir="asc">Description <span class="sort-indicator"></span></th>
+              <th data-sort="category" data-dir="asc">Category <span class="sort-indicator"></span></th>
+              <th data-sort="amount" data-dir="desc">Amount (CAD) <span class="sort-indicator"></span></th>
+              <th data-sort="source" data-dir="asc">Source <span class="sort-indicator"></span></th>
               <th></th>
             </tr>
           </thead>
