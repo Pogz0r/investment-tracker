@@ -417,7 +417,7 @@ def _build_portfolio_payload(uid: int, persist_history: bool = True):
                 .first())
         if not last or (now - last.timestamp).total_seconds() >= 3600:
             db.session.add(PortfolioHistory(user_id=uid, timestamp=now, value_usd=total_usd, value_cad=total_cad))
-            cutoff = now - timedelta(days=90)
+            cutoff = now - timedelta(days=370)
             PortfolioHistory.query.filter(
                 PortfolioHistory.user_id == uid,
                 PortfolioHistory.timestamp < cutoff,

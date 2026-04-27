@@ -149,10 +149,31 @@
         </div>
       </div>
       <div class="card chart-card chart-card--wide">
-        <h2 class="section-title">Portfolio Value History</h2>
+        <div class="chart-title-row">
+          <h2 class="section-title">Portfolio Value History</h2>
+          <div class="range-toggle" id="historyRangeToggle" aria-label="Portfolio history range">
+            <button class="range-opt active" data-range="7d" type="button">7D</button>
+            <button class="range-opt" data-range="30d" type="button">30D</button>
+            <button class="range-opt" data-range="ytd" type="button">YTD</button>
+          </div>
+        </div>
         <div class="chart-wrap">
           <canvas id="lineChart"></canvas>
-          <p class="chart-empty" id="lineEmpty">History builds after the first hourly snapshot</p>
+          <p class="chart-empty" id="lineEmpty">History builds after the first daily close</p>
+        </div>
+      </div>
+      <div class="card chart-card">
+        <h2 class="section-title">Stock Return Split</h2>
+        <div class="chart-wrap chart-wrap--diverging">
+          <canvas id="stockDivergingChart"></canvas>
+          <p class="chart-empty" id="stockDivergingEmpty">Add stocks to see return split</p>
+        </div>
+      </div>
+      <div class="card chart-card chart-card--wide">
+        <h2 class="section-title">Crypto Return Split</h2>
+        <div class="chart-wrap chart-wrap--diverging">
+          <canvas id="cryptoDivergingChart"></canvas>
+          <p class="chart-empty" id="cryptoDivergingEmpty">Add crypto to see return split</p>
         </div>
       </div>
     </section>

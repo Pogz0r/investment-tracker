@@ -544,6 +544,52 @@ body.compact .user-avatar { width: 26px; height: 26px; }
 .chart-card {}
 .chart-card--wide {}
 
+.chart-title-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 14px;
+}
+
+.chart-title-row .section-title {
+  margin-bottom: 0;
+}
+
+.range-toggle {
+  display: inline-flex;
+  align-items: center;
+  padding: 3px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--bg-card-alt);
+  gap: 2px;
+}
+
+.range-opt {
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--text-sub);
+  cursor: pointer;
+  font-family: var(--font-mono);
+  font-size: .68rem;
+  line-height: 1;
+  min-width: 38px;
+  padding: 7px 8px;
+  transition: color .15s ease, background .15s ease;
+}
+
+.range-opt:hover:not(.active) {
+  color: var(--text);
+  background: var(--bg-hover);
+}
+
+.range-opt.active {
+  color: var(--amber-bright);
+  background: var(--amber-dim);
+}
+
 .chart-wrap {
   position: relative;
   height: 280px;
@@ -553,6 +599,7 @@ body.compact .user-avatar { width: 26px; height: 26px; }
 }
 
 .chart-wrap--pie { height: 260px; }
+.chart-wrap--diverging { height: 240px; }
 
 .chart-wrap canvas {
   max-width: 100%;
@@ -1012,6 +1059,7 @@ body.compact .holdings-table th { padding: 5px 12px; }
 body.compact .empty-row td { padding: 18px; }
 body.compact .chart-wrap { height: 190px; }
 body.compact .chart-wrap--pie { height: 190px; }
+body.compact .chart-wrap--diverging { height: 180px; }
 body.compact .charts-grid { gap: 10px; }
 body.compact .goal-header { margin-bottom: 10px; }
 body.compact .progress-track { height: 4px; }
@@ -1033,6 +1081,7 @@ body.compact .goal-meta { font-size: .75rem; }
 
 @media (max-width: 500px) {
   .summary-grid { grid-template-columns: 1fr; }
+  .chart-title-row { align-items: flex-start; flex-direction: column; }
   .header-inner { flex-direction: column; height: auto; padding: 10px 16px; gap: 6px; }
   .page { padding: 14px 12px 48px; gap: 12px; }
   .card { padding: 14px 16px; }

@@ -5,6 +5,8 @@
 // ── chart instances ────────────────────────────────────────────────────────
 let pieChart = null;
 let lineChart = null;
+let stockDivergingChart = null;
+let cryptoDivergingChart = null;
 
 // ── auto-refresh state ─────────────────────────────────────────────────────
 let countdownValue = 60;
@@ -16,6 +18,7 @@ let lastData = null;
 
 // ── currency display mode ──────────────────────────────────────────────────
 let currencyMode = localStorage.getItem("currencyMode") || "USD";
+let historyRange = localStorage.getItem("historyRange") || "7d";
 
 // ── helpers ────────────────────────────────────────────────────────────────
 
@@ -36,6 +39,37 @@ function plClass(n) {
 function pillHtml(pct) {
   const cls = plClass(pct);
   return `<span class="change-pill ${cls}">${fmtPct(pct)}</span>`;
+}
+
+function getCurrencyValue(item) {
+  const usd = item.current_value_usd || 0;
+  if (currencyMode === "PHP") return item.current_value_php ?? usd * (lastData?.usd_to_php || 0);
+  if (currencyMode === "CAD") return item.current_value_cad ?? usd * (lastData?.usd_to_cad || 0);
+  return usd;
+}
+
+function getCurrencyFormatter() {
+  if (currencyMode === "PHP") return fmtPhp;
+  if (currencyMode === "CAD") return fmtCad;
+  return fmtUsd;
+}
+
+function getCurrencyLabel() {
+  return currencyMode === "PHP" ? "PHP" : currencyMode === "CAD" ? "CAD" : "USD";
+}
+
+function getPortfolioHoldings(data) {
+  const allHoldings = [...(data?.stocks || []), ...(data?.crypto || [])];
+  if ((data?.total_liquid_usd || 0) > 0) {
+    allHoldings.unshift({
+      name: "Liquid Cash",
+      current_value_usd: data.total_liquid_usd,
+      current_value_cad: data.total_liquid_cad,
+      current_value_php: data.total_liquid_usd * (data.usd_to_php || 0),
+      type: "cash",
+    });
+  }
+  return allHoldings;
 }
 
 // ── modal helpers ──────────────────────────────────────────────────────────
@@ -120,7 +154,10 @@ function applyCurrencyMode(mode) {
   if (lastData) {
     renderSummary(lastData);
     renderGoal(lastData.savings_goal, lastData.total_usd, lastData.total_cad, lastData.total_php, lastData.usd_to_cad, lastData.usd_to_php);
+    renderPieChart(getPortfolioHoldings(lastData));
     renderLineChart(lastData.portfolio_history || []);
+    renderDivergingChart("stock", lastData.stocks || []);
+    renderDivergingChart("crypto", lastData.crypto || []);
   }
 }
 
@@ -131,6 +168,22 @@ document.getElementById("currencyToggle").addEventListener("click", (e) => {
   const btn = e.target.closest(".currency-opt");
   if (btn) applyCurrencyMode(btn.dataset.currency);
 });
+
+function applyHistoryRange(range) {
+  historyRange = range;
+  localStorage.setItem("historyRange", range);
+  document.querySelectorAll(".range-opt").forEach((btn) => {
+    btn.classList.toggle("active", btn.dataset.range === range);
+  });
+  if (lastData) renderLineChart(lastData.portfolio_history || []);
+}
+
+document.getElementById("historyRangeToggle").addEventListener("click", (e) => {
+  const btn = e.target.closest(".range-opt");
+  if (btn) applyHistoryRange(btn.dataset.range);
+});
+
+applyHistoryRange(historyRange);
 
 // ── compact mode ───────────────────────────────────────────────────────────
 
@@ -233,7 +286,7 @@ function renderSummary(data) {
 
   // Total P&L — primary flips currency, secondary always shows %
   const plEl = document.getElementById("totalPl");
-  const plPhp = data.total_php ? data.total_php - (data.total_usd * (data.usd_to_php || 55.8)) : 0;
+  const plPhp = totalPlUsd * (data.usd_to_php || 55.8);
   plEl.textContent = php ? fmtPhp(plPhp) : cad ? fmtCad(totalPlCad) : fmtUsd(totalPlUsd);
   plEl.className = "card-value " + plClass(totalPlUsd);
 
@@ -358,13 +411,21 @@ function renderPieChart(allHoldings) {
   canvas.style.display = "block";
 
   const labels = allHoldings.map((h) => h.name || h.ticker);
-  const values = allHoldings.map((h) => h.current_value_usd);
+  const values = allHoldings.map((h) => getCurrencyValue(h));
   const colors = PALETTE.slice(0, labels.length);
+  const fmtValue = getCurrencyFormatter();
+  const currencyLabel = getCurrencyLabel();
 
   if (pieChart) {
     pieChart.data.labels = labels;
     pieChart.data.datasets[0].data = values;
     pieChart.data.datasets[0].backgroundColor = colors;
+    pieChart.data.datasets[0].label = `Allocation (${currencyLabel})`;
+    pieChart.options.plugins.tooltip.callbacks.label = (ctx) => {
+      const total = values.reduce((a, b) => a + b, 0);
+      const pct = total > 0 ? (ctx.parsed / total) * 100 : 0;
+      return ` ${ctx.label}: ${fmtValue(ctx.parsed)} (${fmt(pct, 1)}%)`;
+    };
     pieChart.update();
     return;
   }
@@ -372,7 +433,7 @@ function renderPieChart(allHoldings) {
     type: "doughnut",
     data: {
       labels,
-      datasets: [{ data: values, backgroundColor: colors, borderWidth: 2, borderColor: "#07090d" }],
+      datasets: [{ label: `Allocation (${currencyLabel})`, data: values, backgroundColor: colors, borderWidth: 2, borderColor: "#07090d" }],
     },
     options: {
       responsive: true,
@@ -384,12 +445,41 @@ function renderPieChart(allHoldings) {
         },
         tooltip: {
           callbacks: {
-            label: (ctx) => ` ${ctx.label}: ${fmtUsd(ctx.parsed)} (${fmt((ctx.parsed / values.reduce((a, b) => a + b, 0)) * 100, 1)}%)`,
+            label: (ctx) => {
+              const total = values.reduce((a, b) => a + b, 0);
+              const pct = total > 0 ? (ctx.parsed / total) * 100 : 0;
+              return ` ${ctx.label}: ${fmtValue(ctx.parsed)} (${fmt(pct, 1)}%)`;
+            },
           },
         },
       },
     },
   });
+}
+
+function getDailyCloses(history) {
+  const closes = new Map();
+  history.forEach((h) => {
+    const d = new Date(h.timestamp + "Z");
+    if (Number.isNaN(d.getTime())) return;
+    const key = d.toISOString().slice(0, 10);
+    const current = closes.get(key);
+    if (!current || d > current.date) closes.set(key, { ...h, date: d, key });
+  });
+  return [...closes.values()].sort((a, b) => a.date - b.date);
+}
+
+function filterHistoryRange(points) {
+  if (!points.length) return [];
+  const last = points[points.length - 1].date;
+  if (historyRange === "ytd") {
+    const yearStart = new Date(Date.UTC(last.getUTCFullYear(), 0, 1));
+    return points.filter((p) => p.date >= yearStart);
+  }
+  const days = historyRange === "30d" ? 30 : 7;
+  const start = new Date(last);
+  start.setUTCDate(start.getUTCDate() - (days - 1));
+  return points.filter((p) => p.date >= start);
 }
 
 function renderLineChart(history) {
@@ -401,8 +491,9 @@ function renderLineChart(history) {
   const fmtValue = php ? fmtPhp : cad ? fmtCad : fmtUsd;
   const axisPrefix = php ? "\u20b1" : cad ? "CA$" : "$";
   const currencyLabel = php ? "PHP" : cad ? "CAD" : "USD";
+  const points = filterHistoryRange(getDailyCloses(history));
 
-  if (history.length < 2) {
+  if (points.length < 2) {
     lineEmpty.style.display = "block";
     canvas.style.display = "none";
     if (lineChart) { lineChart.destroy(); lineChart = null; }
@@ -411,11 +502,10 @@ function renderLineChart(history) {
   lineEmpty.style.display = "none";
   canvas.style.display = "block";
 
-  const labels = history.map((h) => {
-    const d = new Date(h.timestamp + "Z");
-    return d.toLocaleDateString("en-US", { month: "short", day: "numeric" });
+  const labels = points.map((h) => {
+    return h.date.toLocaleDateString("en-US", { timeZone: "UTC", month: "short", day: "numeric" });
   });
-  const values = history.map((h) => php ? h.value_usd * usdToPhp : cad ? h.value_cad : h.value_usd);
+  const values = points.map((h) => php ? h.value_usd * usdToPhp : cad ? h.value_cad : h.value_usd);
 
   if (lineChart) {
     lineChart.data.labels = labels;
@@ -434,12 +524,12 @@ function renderLineChart(history) {
         label: `Portfolio Value (${currencyLabel})`,
         data: values,
         borderColor: "#00c87a",
-        backgroundColor: "rgba(0,200,122,.05)",
+        backgroundColor: "transparent",
         borderWidth: 2,
-        pointRadius: 3,
+        pointRadius: 0,
         pointHoverRadius: 5,
-        fill: true,
-        tension: 0.3,
+        fill: false,
+        tension: 0.18,
       }],
     },
     options: {
@@ -469,6 +559,89 @@ function renderLineChart(history) {
   });
 }
 
+function renderDivergingChart(kind, holdings) {
+  const isStock = kind === "stock";
+  const empty = document.getElementById(isStock ? "stockDivergingEmpty" : "cryptoDivergingEmpty");
+  const canvas = document.getElementById(isStock ? "stockDivergingChart" : "cryptoDivergingChart");
+  const existingChart = isStock ? stockDivergingChart : cryptoDivergingChart;
+  const rows = [...holdings]
+    .filter((h) => Number.isFinite(h.percent_change))
+    .sort((a, b) => Math.abs(b.percent_change) - Math.abs(a.percent_change))
+    .slice(0, 10);
+
+  if (!rows.length) {
+    empty.style.display = "block";
+    canvas.style.display = "none";
+    if (existingChart) existingChart.destroy();
+    if (isStock) stockDivergingChart = null; else cryptoDivergingChart = null;
+    return;
+  }
+
+  empty.style.display = "none";
+  canvas.style.display = "block";
+
+  const labels = rows.map((h) => h.name || h.ticker || h.coin_id);
+  const values = rows.map((h) => h.percent_change);
+  const maxAbs = Math.max(5, ...values.map((v) => Math.abs(v)));
+  const backgroundColor = values.map((v) => v >= 0 ? "rgba(0, 200, 122, 0.75)" : "rgba(255, 61, 79, 0.78)");
+
+  if (existingChart) {
+    existingChart.data.labels = labels;
+    existingChart.data.datasets[0].data = values;
+    existingChart.data.datasets[0].backgroundColor = backgroundColor;
+    existingChart.options.scales.x.min = -maxAbs;
+    existingChart.options.scales.x.max = maxAbs;
+    existingChart.update();
+    return;
+  }
+
+  const chart = new Chart(canvas, {
+    type: "bar",
+    data: {
+      labels,
+      datasets: [{
+        data: values,
+        backgroundColor,
+        borderWidth: 0,
+        borderRadius: 4,
+        barPercentage: 0.7,
+        categoryPercentage: 0.82,
+      }],
+    },
+    options: {
+      indexAxis: "y",
+      responsive: true,
+      maintainAspectRatio: false,
+      plugins: {
+        legend: { display: false },
+        tooltip: {
+          callbacks: {
+            label: (ctx) => ` ${fmtPct(ctx.parsed.x)}`,
+          },
+        },
+      },
+      scales: {
+        x: {
+          min: -maxAbs,
+          max: maxAbs,
+          grid: { color: "#1c2535", zeroLineColor: "#6a7d96" },
+          ticks: {
+            color: "#3d4f63",
+            font: { family: "'JetBrains Mono', monospace", size: 11 },
+            callback: (v) => `${v}%`,
+          },
+        },
+        y: {
+          grid: { display: false },
+          ticks: { color: "#6a7d96", font: { family: "'Syne', sans-serif", size: 11 } },
+        },
+      },
+    },
+  });
+
+  if (isStock) stockDivergingChart = chart; else cryptoDivergingChart = chart;
+}
+
 // ── main data fetch ────────────────────────────────────────────────────────
 
 async function fetchPortfolio() {
@@ -482,14 +655,12 @@ async function fetchPortfolio() {
     renderCrypto(data.crypto);
     renderWatchlist(data.watchlist || []);
     renderLiquidCash(data.liquid_cash || [], data.usd_to_cad);
-    renderGoal(data.savings_goal, data.total_usd, data.total_cad, data.usd_to_cad);
+    renderGoal(data.savings_goal, data.total_usd, data.total_cad, data.total_php, data.usd_to_cad, data.usd_to_php);
 
-    const allHoldings = [...data.stocks, ...data.crypto];
-    if ((data.total_liquid_usd || 0) > 0) {
-      allHoldings.unshift({ name: "Liquid Cash", current_value_usd: data.total_liquid_usd, type: "cash" });
-    }
-    renderPieChart(allHoldings);
+    renderPieChart(getPortfolioHoldings(data));
     renderLineChart(data.portfolio_history || []);
+    renderDivergingChart("stock", data.stocks || []);
+    renderDivergingChart("crypto", data.crypto || []);
   } catch (err) {
     console.error("Failed to fetch portfolio:", err);
   }
