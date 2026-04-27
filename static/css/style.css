@@ -533,7 +533,7 @@ body.compact .user-avatar { width: 26px; height: 26px; }
    ============================================================ */
 .charts-grid {
   display: grid;
-  grid-template-columns: 300px 1fr;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
   gap: 14px;
   align-items: start;
 }
@@ -542,7 +542,9 @@ body.compact .user-avatar { width: 26px; height: 26px; }
 .charts-grid .card:last-child  { animation-delay: 0.38s; }
 
 .chart-card {}
-.chart-card--wide {}
+.charts-grid > .chart-card:first-child { grid-column: span 1; }
+.chart-card--wide { grid-column: span 3; }
+.chart-card--split { grid-column: span 2; }
 
 .chart-title-row {
   display: flex;
@@ -599,7 +601,7 @@ body.compact .user-avatar { width: 26px; height: 26px; }
 }
 
 .chart-wrap--pie { height: 260px; }
-.chart-wrap--diverging { height: 240px; }
+.chart-wrap--diverging { height: 260px; }
 
 .chart-wrap canvas {
   max-width: 100%;
@@ -1071,6 +1073,9 @@ body.compact .goal-meta { font-size: .75rem; }
    ============================================================ */
 @media (max-width: 1100px) {
   .charts-grid { grid-template-columns: 1fr; }
+  .charts-grid > .chart-card:first-child,
+  .chart-card--wide,
+  .chart-card--split { grid-column: auto; }
   .chart-wrap--pie { height: 240px; }
 }
 

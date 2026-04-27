@@ -29,6 +29,7 @@ const fmtUsd = (n) => "$" + fmt(n);
 const fmtCad = (n) => "CA$" + fmt(n);
 const fmtPhp = (n) => "\u20b1" + fmt(n);
 const fmtPct = (n) => (n >= 0 ? "+" : "") + fmt(n, 2) + "%";
+const fmtPctRounded = (n) => (n >= 0 ? "+" : "") + Math.round(n).toLocaleString("en-US") + "%";
 
 function plClass(n) {
   if (n > 0) return "positive";
@@ -39,6 +40,12 @@ function plClass(n) {
 function pillHtml(pct) {
   const cls = plClass(pct);
   return `<span class="change-pill ${cls}">${fmtPct(pct)}</span>`;
+}
+
+function nicePercentLimit(values) {
+  const maxAbs = Math.max(5, ...values.map((v) => Math.abs(v)));
+  const step = maxAbs > 100 ? 25 : maxAbs > 50 ? 10 : 5;
+  return Math.ceil(maxAbs / step) * step;
 }
 
 function getCurrencyValue(item) {
@@ -582,7 +589,7 @@ function renderDivergingChart(kind, holdings) {
 
   const labels = rows.map((h) => h.name || h.ticker || h.coin_id);
   const values = rows.map((h) => h.percent_change);
-  const maxAbs = Math.max(5, ...values.map((v) => Math.abs(v)));
+  const maxAbs = nicePercentLimit(values);
   const backgroundColor = values.map((v) => v >= 0 ? "rgba(0, 200, 122, 0.75)" : "rgba(255, 61, 79, 0.78)");
 
   if (existingChart) {
@@ -603,9 +610,9 @@ function renderDivergingChart(kind, holdings) {
         data: values,
         backgroundColor,
         borderWidth: 0,
-        borderRadius: 4,
-        barPercentage: 0.7,
-        categoryPercentage: 0.82,
+        borderRadius: 5,
+        barPercentage: 0.58,
+        categoryPercentage: 0.72,
       }],
     },
     options: {
@@ -616,7 +623,7 @@ function renderDivergingChart(kind, holdings) {
         legend: { display: false },
         tooltip: {
           callbacks: {
-            label: (ctx) => ` ${fmtPct(ctx.parsed.x)}`,
+            label: (ctx) => ` ${fmtPctRounded(ctx.parsed.x)}`,
           },
         },
       },
@@ -624,16 +631,22 @@ function renderDivergingChart(kind, holdings) {
         x: {
           min: -maxAbs,
           max: maxAbs,
-          grid: { color: "#1c2535", zeroLineColor: "#6a7d96" },
+          border: { display: false },
+          grid: {
+            color: (ctx) => ctx.tick.value === 0 ? "rgba(106, 125, 150, 0.72)" : "#1c2535",
+            lineWidth: (ctx) => ctx.tick.value === 0 ? 2 : 1,
+          },
           ticks: {
             color: "#3d4f63",
             font: { family: "'JetBrains Mono', monospace", size: 11 },
-            callback: (v) => `${v}%`,
+            maxTicksLimit: 7,
+            callback: (v) => `${Math.round(v)}%`,
           },
         },
         y: {
+          border: { display: false },
           grid: { display: false },
-          ticks: { color: "#6a7d96", font: { family: "'Syne', sans-serif", size: 11 } },
+          ticks: { color: "#6a7d96", font: { family: "'Syne', sans-serif", size: 11 }, padding: 8 },
         },
       },
     },
