@@ -9,7 +9,10 @@ def env_bool(name: str, default: bool = False) -> bool:
 
 
 RESEARCH_DATABASE_URL = os.environ.get("RESEARCH_DATABASE_URL", "sqlite:///data/research.db")
-RESEARCH_LIVE_MODE = env_bool("RESEARCH_LIVE_MODE", False)
+
+
+def is_live_mode() -> bool:
+    return env_bool("RESEARCH_LIVE_MODE", False)
 
 GEMINI_STAGE1_MODEL = os.environ.get("GEMINI_STAGE1_MODEL", "gemini-2.5-pro")
 GEMINI_STAGE4_MODEL = os.environ.get("GEMINI_STAGE4_MODEL", "gemini-2.5-pro")
@@ -20,4 +23,3 @@ PERPLEXITY_STAGE3_MODEL = os.environ.get("PERPLEXITY_STAGE3_MODEL", "sonar-pro")
 
 SELF_BASE_URL = os.environ.get("SELF_BASE_URL", "").rstrip("/")
 PORTFOLIO_EXPORT_TOKEN = os.environ.get("PORTFOLIO_EXPORT_TOKEN", "")
-

@@ -4,7 +4,7 @@ from research import config
 
 
 def research(prompt: str, prompt_id: str, title: str) -> dict:
-    if not config.RESEARCH_LIVE_MODE:
+    if not config.is_live_mode():
         return {
             "prompt_id": prompt_id,
             "title": title,

@@ -4,7 +4,7 @@ from research import config
 
 
 def generate(prompt: str, model: str, system: str = "") -> str:
-    if not config.RESEARCH_LIVE_MODE:
+    if not config.is_live_mode():
         return _fake_response(prompt, model)
     try:
         from google import genai

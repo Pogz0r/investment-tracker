@@ -1,10 +1,13 @@
 import json
+import logging
+import os
 import time
 
 from flask import Blueprint, Response, jsonify, render_template, request
 from flask_login import login_required
 
 from research.db import run_migrations
+from research import config
 from research.jobs import create_run, find_existing_run, get_run
 from research.pipeline import start_pipeline
 
@@ -14,6 +17,11 @@ research_bp = Blueprint("research", __name__, url_prefix="/research")
 @research_bp.before_app_request
 def ensure_research_schema():
     if not getattr(ensure_research_schema, "_done", False):
+        logging.getLogger(__name__).warning(
+            "RESEARCH_LIVE_MODE env=%s parsed=%s",
+            os.environ.get("RESEARCH_LIVE_MODE"),
+            config.is_live_mode(),
+        )
         run_migrations()
         ensure_research_schema._done = True
 
@@ -135,4 +143,3 @@ def _serialize_run(run: dict) -> dict:
 
 def _sse(event: dict) -> str:
     return f"data: {json.dumps(event)}\n\n"
-

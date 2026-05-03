@@ -2,7 +2,7 @@ from research import config
 
 
 def generate(prompt: str, model: str, thinking: bool = False, system: str = "") -> str:
-    if not config.RESEARCH_LIVE_MODE:
+    if not config.is_live_mode():
         return _fake_response(model)
     try:
         import anthropic

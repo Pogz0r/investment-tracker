@@ -27,6 +27,6 @@ def extract_youtube_video_id(url: str) -> str:
 
 
 def is_fake_mode() -> bool:
-    from research.config import RESEARCH_LIVE_MODE
+    from research import config
 
-    return not RESEARCH_LIVE_MODE
+    return not config.is_live_mode()
