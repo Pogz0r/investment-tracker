@@ -1,0 +1,106 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>BDC Investment Tracker - Research</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:ital,wght@0,400;0,600;0,700;1,400;1,600;1,700&family=Syne:wght@400;600;700&family=JetBrains+Mono:wght@400;500;600;700&display=swap" rel="stylesheet" />
+  <link rel="icon" type="image/svg+xml" href="/static/favicon.svg" />
+  <link rel="stylesheet" href="/static/css/style.css" />
+  <link rel="stylesheet" href="/static/css/research.css" />
+  <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
+</head>
+<body>
+  <header class="site-header">
+    <div class="header-inner">
+      <div class="brand">
+        <a href="/" class="brand-name"><span class="brand-accent">BDC</span> Investment Tracker</a>
+      </div>
+      <nav class="header-nav">
+        <a href="/" class="nav-tab">Portfolio</a>
+        <a href="/financial" class="nav-tab">Financial</a>
+        <a href="/research" class="nav-tab nav-tab--active">Research</a>
+      </nav>
+      <div class="header-meta">
+        <span class="rate-badge">Pipeline Mode</span>
+      </div>
+      <div class="user-profile">
+        {% if current_user.picture %}
+        <img src="{{ current_user.picture }}" class="user-avatar" referrerpolicy="no-referrer" alt="{{ current_user.name }}" />
+        {% endif %}
+        <span class="user-name">{{ (current_user.name or current_user.email or 'User').split()[0] }}</span>
+        <a href="/logout" class="btn btn-outline btn-sm">Sign out</a>
+      </div>
+    </div>
+  </header>
+
+  <main class="research-shell">
+    <aside class="research-stage-rail" aria-label="Research stages">
+      <div class="rail-kicker">Pipeline</div>
+      <div class="stage-step" id="pill-transcript"><span class="stage-dot"></span><span>Transcript</span></div>
+      <div class="stage-step" id="pill-1"><span class="stage-dot"></span><span>Signal</span></div>
+      <div class="stage-step" id="pill-2"><span class="stage-dot"></span><span>Thematic</span></div>
+      <div class="stage-step" id="pill-3"><span class="stage-dot"></span><span>Parallel Research</span></div>
+      <div class="stage-step" id="pill-4"><span class="stage-dot"></span><span>Consolidation</span></div>
+      <div class="stage-step" id="pill-5"><span class="stage-dot"></span><span>Equity Screen</span></div>
+    </aside>
+
+    <section class="research-workbench">
+      <section class="research-command">
+        <div>
+          <div class="card-label">Agentic Research</div>
+          <h1>Investment Podcast Pipeline</h1>
+        </div>
+        <form id="researchForm" class="research-form">
+          <input id="youtubeUrl" type="url" placeholder="Paste a YouTube URL" autocomplete="off" />
+          <button id="runBtn" class="btn btn-primary" type="submit">Run Pipeline</button>
+        </form>
+      </section>
+
+      <div id="errorMsg" class="research-error" hidden></div>
+
+      <section id="stage3Panel" class="parallel-execution" hidden>
+        <div class="parallel-head">
+          <div>
+            <div class="card-label">Stage 3</div>
+            <h2>Parallel Research Dispatch</h2>
+          </div>
+          <span id="parallelCount" class="research-chip">0 prompts</span>
+        </div>
+        <div id="promptList" class="prompt-grid"></div>
+        <div class="research-progress-track"><div id="promptProgress" class="research-progress-fill"></div></div>
+      </section>
+
+      <section id="stageOutputs" class="stage-output-stack">
+        <div class="empty-research-state">
+          <div class="card-label">Ready</div>
+          <p>Run a video through the fake pipeline locally, then switch on live mode when the shell is stable.</p>
+        </div>
+      </section>
+
+      <section id="finalActions" class="final-actions" hidden>
+        <a id="downloadFull" class="btn btn-outline" href="#">Download Full Markdown</a>
+      </section>
+    </section>
+
+    <aside class="research-reference-rail" aria-label="Reference material">
+      <section class="reference-card">
+        <div class="card-label">Citations</div>
+        <div id="citationList" class="reference-list muted-reference">Waiting for Stage 3.</div>
+      </section>
+      <section class="reference-card">
+        <div class="card-label">Market Data</div>
+        <div id="marketData" class="reference-list muted-reference">Waiting for Stage 5.</div>
+      </section>
+      <section class="reference-card">
+        <div class="card-label">Portfolio Observations</div>
+        <div id="portfolioObservations" class="reference-list muted-reference">Waiting for portfolio export.</div>
+      </section>
+    </aside>
+  </main>
+
+  <script src="/static/js/research.js"></script>
+</body>
+</html>

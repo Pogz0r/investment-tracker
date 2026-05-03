@@ -23,3 +23,33 @@ services:
         sync: false
       - key: COINGECKO_API_KEY
         sync: false
+      - key: PORTFOLIO_EXPORT_TOKEN
+        sync: false
+      - key: PORTFOLIO_EXPORT_USER_EMAIL
+        sync: false
+      - key: RESEARCH_DATABASE_URL
+        sync: false
+      - key: SELF_BASE_URL
+        sync: false
+      - key: RESEARCH_LIVE_MODE
+        value: "true"
+      - key: ANTHROPIC_API_KEY
+        sync: false
+      - key: GEMINI_API_KEY
+        sync: false
+      - key: PERPLEXITY_API_KEY
+        sync: false
+      - key: OPENAI_API_KEY
+        sync: false
+      - key: GEMINI_STAGE1_MODEL
+        value: gemini-2.5-pro
+      - key: GEMINI_STAGE4_MODEL
+        value: gemini-2.5-pro
+      - key: CLAUDE_STAGE2_MODEL
+        value: claude-opus-4-6
+      - key: CLAUDE_STAGE3_MODEL
+        value: claude-opus-4-6
+      - key: CLAUDE_STAGE5_MODEL
+        value: claude-opus-4-7
+      - key: PERPLEXITY_STAGE3_MODEL
+        value: sonar-pro
