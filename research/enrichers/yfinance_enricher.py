@@ -3,18 +3,30 @@ import re
 
 TICKER_RE = re.compile(r"\b[A-Z]{1,5}(?:\.[A-Z]{1,3})?\b")
 FALSE_POSITIVES = {
-    "AI",
-    "API",
-    "CAD",
-    "CEO",
-    "CFO",
-    "ETF",
-    "GDP",
-    "JSON",
-    "LLM",
-    "MD",
-    "PDF",
-    "USD",
+    # Generic acronyms
+    "AI", "API", "ML", "LLM", "NLP",
+    # Financial terms
+    "CAD", "USD", "EUR", "GBP", "JPY", "AUD",
+    "ETF", "IPO", "GDP", "CPI", "EPS", "PE",
+    "IRR", "NPV", "ROI", "ROE", "ROIC",
+    "TAM", "SAM", "SOM", "ARR", "MRR",
+    "EBIT", "EBITDA", "CAPEX", "OPEX", "COGS",
+    "YOY", "YTD", "MTD", "QTD",
+    "Q1", "Q2", "Q3", "Q4",
+    # Corporate titles
+    "CEO", "CFO", "CTO", "COO", "CMO", "CSO",
+    # Common words that match ticker pattern
+    "THE", "AND", "FOR", "NOT", "BUT", "WITH",
+    "NEW", "OLD", "TOP", "KEY", "VS", "PER",
+    "US", "UK", "EU", "UN", "WHO", "CDC",
+    "PDF", "JSON", "CSV", "URL", "URI",
+    "MD", "DR", "MR", "MS",
+    "SG", "RD", "OK", "NO", "YES",
+    # Research/memo terms that appear in stage outputs
+    "TBD", "TBC", "NA", "NM", "NR",
+    "BUY", "SELL", "HOLD",
+    "HIGH", "LOW", "MID",
+    "PHASE", "STAGE",
 }
 
 
@@ -56,4 +68,3 @@ def _safe_float(value):
         return float(value or 0)
     except (TypeError, ValueError):
         return 0.0
-

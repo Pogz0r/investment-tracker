@@ -88,4 +88,4 @@ USER_TEMPLATE = """SIGNAL MEMO:
 THEMATIC DEEP-DIVE:
 {stage2_output}
 
-Return markdown headings in the format `### P1: Title` through at most `### P5: Title`."""
+Design the research plan per the output schema. The <prompts_json> block at the end is mandatory - the pipeline parses it for parallel execution via Perplexity Sonar Pro. If the JSON block is missing or malformed, the pipeline falls back to markdown parsing."""
