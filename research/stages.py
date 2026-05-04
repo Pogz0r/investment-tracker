@@ -16,10 +16,41 @@ from research.prompts import (
 from research.utils import is_fake_mode
 
 
+def prepare_stage1_transcript(transcript: str, max_words: int | None = None) -> str:
+    """Bound long transcripts so Stage 1 stays responsive in live mode."""
+    words = (transcript or "").split()
+    limit = max_words or config.stage1_transcript_max_words()
+    if len(words) <= limit:
+        return transcript
+
+    edge_words = limit // 3
+    middle_words = limit - (edge_words * 2)
+    middle_start = max(0, (len(words) - middle_words) // 2)
+
+    beginning = " ".join(words[:edge_words])
+    middle = " ".join(words[middle_start : middle_start + middle_words])
+    ending = " ".join(words[-edge_words:])
+
+    return "\n\n".join(
+        [
+            (
+                "[Transcript excerpted for Stage 1 latency: "
+                f"{len(words)} words -> {limit} representative words. "
+                "The full transcript is stored with the run. "
+                "Use only the excerpt below for verbatim quotes and mark coverage gaps as excerpt-limited.]"
+            ),
+            "## Beginning Excerpt\n" + beginning,
+            "## Middle Excerpt\n" + middle,
+            "## Ending Excerpt\n" + ending,
+        ]
+    )
+
+
 def run_stage1(transcript: str) -> str:
+    stage1_transcript = prepare_stage1_transcript(transcript)
     return gemini_client.generate(
         system=stage1_signal.SYSTEM_PROMPT,
-        prompt=stage1_signal.USER_TEMPLATE.format(transcript=transcript),
+        prompt=stage1_signal.USER_TEMPLATE.format(transcript=stage1_transcript),
         model=config.GEMINI_STAGE1_MODEL,
     )
 

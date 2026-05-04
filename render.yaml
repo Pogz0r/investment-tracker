@@ -40,6 +40,8 @@ services:
         sync: false
       - key: RESEARCH_LIVE_MODE
         value: "true"
+      - key: STAGE1_TRANSCRIPT_MAX_WORDS
+        value: "6000"
       - key: ANTHROPIC_API_KEY
         sync: false
       - key: GEMINI_API_KEY

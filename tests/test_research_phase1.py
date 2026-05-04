@@ -122,6 +122,31 @@ This should not be used.
     assert prompts == [{"id": "P0", "title": "Crux check", "prompt": "Research the single crux question."}]
 
 
+def test_stage1_transcript_preparation_keeps_short_transcripts():
+    from research.stages import prepare_stage1_transcript
+
+    transcript = "short transcript with NVDA signal"
+
+    assert prepare_stage1_transcript(transcript, max_words=30) == transcript
+
+
+def test_stage1_transcript_preparation_bounds_long_transcripts():
+    from research.stages import prepare_stage1_transcript
+
+    transcript = " ".join(f"word{i}" for i in range(120))
+
+    prepared = prepare_stage1_transcript(transcript, max_words=30)
+
+    assert "Transcript excerpted for Stage 1 latency" in prepared
+    assert "## Beginning Excerpt" in prepared
+    assert "## Middle Excerpt" in prepared
+    assert "## Ending Excerpt" in prepared
+    assert "word0" in prepared
+    assert "word60" in prepared
+    assert "word119" in prepared
+    assert "word30" not in prepared
+
+
 def test_portfolio_fetcher_uses_self_base_url(monkeypatch):
     calls = {}
 
