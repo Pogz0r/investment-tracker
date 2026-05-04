@@ -1,3 +1,5 @@
+from datetime import datetime, timezone
+import logging
 import os
 
 from sqlalchemy import (
@@ -11,6 +13,7 @@ from sqlalchemy import (
     Text,
     create_engine,
     func,
+    update,
 )
 from sqlalchemy.dialects import postgresql
 from sqlalchemy.pool import StaticPool
@@ -109,6 +112,32 @@ def run_migrations():
                     FOR EACH ROW EXECUTE FUNCTION update_modified_column();
                 """
             )
+
+
+def cleanup_zombie_runs() -> int:
+    """
+    Mark queued/running runs from a previous process as failed.
+
+    Render can restart a worker while a background thread is mid-pipeline. Those
+    rows otherwise stay in running/queued forever and block clear UI recovery.
+    """
+    now = datetime.now(timezone.utc)
+    with get_engine().begin() as conn:
+        result = conn.execute(
+            update(pipeline_runs)
+            .where(pipeline_runs.c.status.in_(["running", "queued"]))
+            .values(
+                status="error",
+                error_message="Pipeline interrupted by instance restart",
+                error_stage=pipeline_runs.c.current_stage,
+                completed_at=now,
+                updated_at=now,
+            )
+        )
+    updated = int(result.rowcount or 0)
+    if updated:
+        logging.getLogger(__name__).warning("[STARTUP] Marked %s zombie pipeline runs as failed", updated)
+    return updated
 
 
 def reset_engine_for_tests():

@@ -68,6 +68,42 @@ def test_duplicate_youtube_url_reuses_existing_run(research_app):
     assert second.get_json()["run_id"] == first.get_json()["run_id"]
 
 
+def test_failed_duplicate_url_creates_new_run(research_app):
+    from research.jobs import create_run, get_run, update_run
+
+    client = research_app.test_client()
+    url = "https://www.youtube.com/watch?v=retry01"
+    failed_run_id = create_run(url)
+    update_run(failed_run_id, status="error", error_message="boom", current_stage="stage1")
+
+    response = client.post("/research/run", json={"url": url})
+
+    assert response.status_code == 202
+    payload = response.get_json()
+    assert payload["duplicate"] is False
+    assert payload["run_id"] != failed_run_id
+    assert get_run(failed_run_id)["status"] == "error"
+
+
+def test_cleanup_zombie_runs_marks_queued_and_running_as_error(research_app):
+    from research.db import cleanup_zombie_runs
+    from research.jobs import create_run, get_run, update_run
+
+    queued_id = create_run("https://www.youtube.com/watch?v=queued01")
+    running_id = create_run("https://www.youtube.com/watch?v=running01")
+    update_run(running_id, status="running", current_stage="stage2")
+
+    updated = cleanup_zombie_runs()
+
+    assert updated == 2
+    queued = get_run(queued_id)
+    running = get_run(running_id)
+    assert queued["status"] == "error"
+    assert running["status"] == "error"
+    assert queued["error_message"] == "Pipeline interrupted by instance restart"
+    assert running["error_stage"] == "stage2"
+
+
 def test_markdown_report_download(research_app):
     client = research_app.test_client()
     run_id = client.post("/research/run", json={"url": "https://youtu.be/report01"}).get_json()["run_id"]

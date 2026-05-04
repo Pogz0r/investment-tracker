@@ -22,11 +22,17 @@ def create_run(youtube_url: str) -> int:
         return int(result.inserted_primary_key[0])
 
 
-def find_existing_run(youtube_url: str):
+def find_existing_completed_run(youtube_url: str):
+    """
+    Return a duplicate only when a previous run completed successfully.
+
+    Failed, crashed, queued, and in-progress runs must not block a re-run.
+    """
     with get_engine().connect() as conn:
         row = conn.execute(
             select(pipeline_runs)
             .where(pipeline_runs.c.youtube_url == youtube_url)
+            .where(pipeline_runs.c.status == "complete")
             .order_by(desc(pipeline_runs.c.started_at))
             .limit(1)
         ).mappings().first()

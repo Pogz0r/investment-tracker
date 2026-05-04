@@ -6,9 +6,9 @@ import time
 from flask import Blueprint, Response, current_app, jsonify, render_template, request, stream_with_context
 from flask_login import current_user, login_required
 
-from research.db import run_migrations
+from research.db import cleanup_zombie_runs, run_migrations
 from research import config
-from research.jobs import create_run, find_existing_run, get_run
+from research.jobs import create_run, find_existing_completed_run, get_run
 from research.pipeline import start_pipeline
 
 research_bp = Blueprint("research", __name__, url_prefix="/research")
@@ -23,6 +23,7 @@ def ensure_research_schema():
             config.is_live_mode(),
         )
         run_migrations()
+        cleanup_zombie_runs()
         ensure_research_schema._done = True
 
 
@@ -43,9 +44,9 @@ def run():
     if not url:
         return jsonify({"error": "YouTube URL is required"}), 400
 
-    existing = find_existing_run(url)
+    existing = find_existing_completed_run(url)
     if existing:
-        current_app.logger.warning("[PIPELINE] Duplicate URL matched existing run %s", existing["id"])
+        current_app.logger.warning("[PIPELINE] Duplicate URL matched completed run %s", existing["id"])
         return jsonify({"run_id": existing["id"], "duplicate": True}), 200
 
     run_id = create_run(url)

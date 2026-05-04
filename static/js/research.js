@@ -81,6 +81,12 @@ async function runPipeline() {
     }
     console.log("[RUN] Got run_id:", payload.run_id, "duplicate:", Boolean(payload.duplicate));
     currentRunId = payload.run_id;
+    if (payload.duplicate) {
+      showError(`This video was already analyzed (run #${payload.run_id}). Showing existing results.`);
+      await refreshRun();
+      setRunning(false);
+      return;
+    }
     startElapsedTimer();
     setActiveStage("transcript");
     document.getElementById("runBtn").textContent = "Running...";
