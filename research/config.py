@@ -26,7 +26,7 @@ def is_live_mode() -> bool:
 
 
 def stage1_transcript_max_words() -> int:
-    return max(3000, env_int("STAGE1_TRANSCRIPT_MAX_WORDS", 6000))
+    return max(3000, env_int("STAGE1_TRANSCRIPT_MAX_WORDS", 12000))
 
 GEMINI_STAGE1_MODEL = os.environ.get("GEMINI_STAGE1_MODEL", "gemini-2.5-pro")
 GEMINI_STAGE4_MODEL = os.environ.get("GEMINI_STAGE4_MODEL", "gemini-2.5-pro")

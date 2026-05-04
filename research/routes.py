@@ -4,7 +4,7 @@ import os
 import time
 
 from flask import Blueprint, Response, current_app, jsonify, render_template, request, stream_with_context
-from flask_login import login_required
+from flask_login import current_user, login_required
 
 from research.db import run_migrations
 from research import config
@@ -35,17 +35,23 @@ def index():
 @research_bp.route("/run", methods=["POST"])
 @login_required
 def run():
+    user_id = getattr(current_user, "id", "anon") if current_user.is_authenticated else "anon"
+    current_app.logger.warning("[PIPELINE] POST /research/run received from user %s", user_id)
     body = request.get_json(silent=True) or {}
     url = (body.get("url") or "").strip()
+    current_app.logger.warning("[PIPELINE] URL submitted: %s", url)
     if not url:
         return jsonify({"error": "YouTube URL is required"}), 400
 
     existing = find_existing_run(url)
     if existing:
+        current_app.logger.warning("[PIPELINE] Duplicate URL matched existing run %s", existing["id"])
         return jsonify({"run_id": existing["id"], "duplicate": True}), 200
 
     run_id = create_run(url)
+    current_app.logger.warning("[PIPELINE] Created run %s, dispatching background thread", run_id)
     start_pipeline(run_id, url)
+    current_app.logger.warning("[PIPELINE] Background thread for run %s dispatched", run_id)
     return jsonify({"run_id": run_id, "duplicate": False}), 202
 
 

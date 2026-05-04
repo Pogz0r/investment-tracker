@@ -36,26 +36,59 @@ document.getElementById("researchForm").addEventListener("submit", async (event)
 });
 
 async function runPipeline() {
+  console.log("[RUN] Run Pipeline submitted");
+  if (eventSource) {
+    eventSource.close();
+    eventSource = null;
+  }
+  stopPolling();
+  if (elapsedTimerInterval) {
+    clearInterval(elapsedTimerInterval);
+    elapsedTimerInterval = null;
+  }
+  currentRunId = null;
+  runStartTime = null;
+  stageStartTime = null;
+  currentStage = null;
+  consecutiveRefreshFailures = 0;
+
   const url = document.getElementById("youtubeUrl").value.trim();
   if (!url) return showError("Paste a YouTube URL first.");
   resetUI();
   setRunning(true);
+  document.getElementById("runBtn").textContent = "Starting...";
 
   try {
+    console.log("[RUN] Submitting POST /research/run with URL:", url);
     const response = await fetch("/research/run", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
+      credentials: "same-origin",
       body: JSON.stringify({ url }),
     });
-    const payload = await response.json();
-    if (!response.ok) throw new Error(payload.error || "Pipeline start failed.");
+    console.log("[RUN] Server responded:", response.status);
+    const responseText = await response.text();
+    let payload = {};
+    try {
+      payload = responseText ? JSON.parse(responseText) : {};
+    } catch (parseError) {
+      console.error("[RUN] Non-JSON response body:", responseText.slice(0, 500));
+      throw new Error(`Server returned non-JSON response ${response.status}: ${responseText.slice(0, 200)}`);
+    }
+    if (!response.ok) {
+      console.error("[RUN] Error body:", responseText.slice(0, 500));
+      throw new Error(payload.error || `Server error ${response.status}: ${responseText.slice(0, 200)}`);
+    }
+    console.log("[RUN] Got run_id:", payload.run_id, "duplicate:", Boolean(payload.duplicate));
     currentRunId = payload.run_id;
     startElapsedTimer();
     setActiveStage("transcript");
+    document.getElementById("runBtn").textContent = "Running...";
     connectStream(currentRunId);
     startPolling();
     await refreshRun();
   } catch (error) {
+    console.error("[RUN] Fetch failed:", error);
     showError(error.message);
     setRunning(false);
   }
