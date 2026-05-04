@@ -1,5 +1,7 @@
 import os
+import sys
 import time
+from types import SimpleNamespace
 
 import pytest
 
@@ -102,6 +104,67 @@ def test_cleanup_zombie_runs_marks_queued_and_running_as_error(research_app):
     assert running["status"] == "error"
     assert queued["error_message"] == "Pipeline interrupted by instance restart"
     assert running["error_stage"] == "stage2"
+
+
+def test_retry_skips_completed_stages_and_finishes_stage5(research_app):
+    from research.jobs import create_run, get_run, update_run
+
+    client = research_app.test_client()
+    run_id = create_run("https://www.youtube.com/watch?v=retry_stage5")
+    update_run(
+        run_id,
+        status="error",
+        current_stage="stage5",
+        stage1_output="stage 1 saved",
+        stage2_output="stage 2 saved",
+        stage3_plan_output="stage 3 plan saved",
+        stage3_research={"P0": {"result": "stage 3 research saved", "citations": []}},
+        stage4_output="stage 4 saved",
+        error_message="Claude thinking parameter failed",
+        error_stage="stage5",
+    )
+
+    response = client.post(f"/research/run/{run_id}/retry")
+
+    assert response.status_code == 202
+    assert response.get_json()["resume_from"] == "stage5"
+    run = get_run(run_id)
+    assert run["status"] == "complete"
+    assert run["stage1_output"] == "stage 1 saved"
+    assert run["stage2_output"] == "stage 2 saved"
+    assert run["stage3_plan_output"] == "stage 3 plan saved"
+    assert run["stage4_output"] == "stage 4 saved"
+    assert "Personalized Portfolio Observations" in run["stage5_output"]
+
+
+def test_claude_thinking_uses_adaptive_output_config(monkeypatch):
+    calls = {}
+
+    class Messages:
+        def create(self, **kwargs):
+            calls.update(kwargs)
+            return SimpleNamespace(content=[SimpleNamespace(type="text", text="ok")])
+
+    class FakeAnthropic:
+        def __init__(self):
+            self.messages = Messages()
+
+    monkeypatch.setenv("RESEARCH_LIVE_MODE", "true")
+    monkeypatch.setitem(sys.modules, "anthropic", SimpleNamespace(Anthropic=FakeAnthropic))
+
+    from research.models import claude_client
+
+    output = claude_client.generate(
+        prompt="screen names",
+        model="claude-opus-4-7",
+        thinking=True,
+        system="system prompt",
+    )
+
+    assert output == "ok"
+    assert calls["thinking"] == {"type": "adaptive"}
+    assert calls["output_config"] == {"effort": "high"}
+    assert "budget_tokens" not in calls["thinking"]
 
 
 def test_markdown_report_download(research_app):

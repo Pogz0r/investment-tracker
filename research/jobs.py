@@ -3,7 +3,7 @@ from threading import Lock
 
 from sqlalchemy import desc, insert, select, update
 
-from research.db import get_engine, pipeline_runs
+from research.db import get_engine, pipeline_runs, podcasts
 
 _active_jobs = set()
 _active_jobs_lock = Lock()
@@ -43,6 +43,16 @@ def get_run(run_id: int):
     with get_engine().connect() as conn:
         row = conn.execute(
             select(pipeline_runs).where(pipeline_runs.c.id == run_id)
+        ).mappings().first()
+    return dict(row) if row else None
+
+
+def get_podcast_by_run(run_id: int):
+    with get_engine().connect() as conn:
+        row = conn.execute(
+            select(podcasts)
+            .select_from(podcasts.join(pipeline_runs, pipeline_runs.c.podcast_id == podcasts.c.id))
+            .where(pipeline_runs.c.id == run_id)
         ).mappings().first()
     return dict(row) if row else None
 

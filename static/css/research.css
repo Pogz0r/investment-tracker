@@ -246,6 +246,27 @@
   color: var(--red);
 }
 
+.btn-retry {
+  align-self: flex-start;
+  margin-top: 8px;
+  border: 1px solid rgba(212, 137, 10, .6);
+  background: var(--amber-bright);
+  color: var(--bg);
+  border-radius: var(--radius-sm);
+  padding: 10px 16px;
+  font-size: .76rem;
+  font-weight: 800;
+  letter-spacing: .05em;
+  text-transform: uppercase;
+  cursor: pointer;
+}
+
+.btn-retry:hover { opacity: .9; }
+.btn-retry:disabled {
+  opacity: .55;
+  cursor: not-allowed;
+}
+
 .parallel-execution {
   margin-top: 18px;
   padding: 18px;

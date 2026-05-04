@@ -35,6 +35,8 @@ document.getElementById("researchForm").addEventListener("submit", async (event)
   await runPipeline();
 });
 
+document.getElementById("retryBtn").addEventListener("click", retryRun);
+
 async function runPipeline() {
   console.log("[RUN] Run Pipeline submitted");
   if (eventSource) {
@@ -182,6 +184,7 @@ function setActiveStage(stage) {
 async function handleEvent(event) {
   if (!runStartTime) startElapsedTimer();
   if (event.type === "stage_start") setActiveStage(event.stage);
+  if (event.type === "stage_skipped") markStageDone(event.stage);
   if (event.type === "stage_done") {
     markStageDone(event.stage);
     await refreshRun();
@@ -198,6 +201,7 @@ async function handleEvent(event) {
     setRunning(false);
     stopPolling();
     stopElapsedTimer();
+    showRetryButton();
   }
   if (event.type === "final" && eventSource) {
     eventSource.close();
@@ -241,6 +245,7 @@ function applyRunState(run) {
     setRunning(false);
     stopPolling();
     stopElapsedTimer();
+    showRetryButton();
   }
 }
 
@@ -415,6 +420,7 @@ function onComplete() {
   stopPolling();
   setLiveStatusComplete();
   stopElapsedTimer();
+  hideRetryButton();
   if (eventSource) {
     eventSource.close();
     eventSource = null;
@@ -441,6 +447,7 @@ function resetLiveStatusPanel() {
   if (emojiEl) emojiEl.textContent = "⏳";
   if (totalEl) totalEl.textContent = "00:00";
   if (stageEl) stageEl.textContent = "0s";
+  hideRetryButton();
 }
 
 function setLiveStatusComplete() {
@@ -455,6 +462,7 @@ function setLiveStatusComplete() {
   const modelEl = document.getElementById("current-stage-model");
   if (descEl) descEl.textContent = `Pipeline finished in ${formatTimer(totalSeconds)}`;
   if (modelEl) modelEl.textContent = "All stages complete";
+  hideRetryButton();
   updateElapsedDisplay();
 }
 
@@ -465,6 +473,75 @@ function setLiveStatusError() {
   panel.classList.add("error");
   const labelEl = panel.querySelector(".status-label");
   if (labelEl) labelEl.textContent = "ERROR";
+  showRetryButton();
+}
+
+async function retryRun() {
+  if (!currentRunId) return;
+  if (!window.confirm("Retry this run from the failed stage? Successful stages will be reused.")) return;
+
+  const btn = document.getElementById("retryBtn");
+  btn.disabled = true;
+  btn.textContent = "Retrying...";
+
+  try {
+    const response = await fetch(`/research/run/${currentRunId}/retry`, {
+      method: "POST",
+      credentials: "same-origin",
+      cache: "no-store",
+    });
+    const payload = await response.json();
+    if (!response.ok) throw new Error(payload.error || "Retry failed.");
+    console.log("[RETRY] Resuming from", payload.resume_from);
+    if (payload.status === "complete") {
+      await refreshRun();
+      hideRetryButton();
+      setRunning(false);
+      return;
+    }
+
+    hideRefreshError();
+    document.getElementById("errorMsg").hidden = true;
+    document.getElementById("errorMsg").style.display = "";
+    hideRetryButton();
+    resetLiveStatusPanel();
+    setRunning(true);
+    startElapsedTimer();
+    setActiveStage(stageFromResume(payload.resume_from));
+    connectStream(currentRunId);
+    startPolling();
+    await refreshRun();
+  } catch (error) {
+    showError(`Retry failed: ${error.message}`);
+    btn.disabled = false;
+    btn.textContent = "Retry From Failed Stage";
+    showRetryButton();
+  }
+}
+
+function stageFromResume(resumeFrom) {
+  if (resumeFrom === "stage1") return 1;
+  if (resumeFrom === "stage2") return 2;
+  if (resumeFrom === "stage3") return 3;
+  if (resumeFrom === "stage4") return 4;
+  if (resumeFrom === "stage5") return 5;
+  return "transcript";
+}
+
+function showRetryButton() {
+  const btn = document.getElementById("retryBtn");
+  if (!btn) return;
+  btn.hidden = false;
+  btn.disabled = false;
+  btn.textContent = "Retry From Failed Stage";
+}
+
+function hideRetryButton() {
+  const btn = document.getElementById("retryBtn");
+  if (!btn) return;
+  btn.hidden = true;
+  btn.disabled = false;
+  btn.textContent = "Retry From Failed Stage";
 }
 
 function resetUI() {

@@ -8,8 +8,8 @@ from flask_login import current_user, login_required
 
 from research.db import cleanup_zombie_runs, run_migrations
 from research import config
-from research.jobs import create_run, find_existing_completed_run, get_run
-from research.pipeline import start_pipeline
+from research.jobs import create_run, find_existing_completed_run, get_run, update_run
+from research.pipeline import start_pipeline, start_pipeline_resume
 
 research_bp = Blueprint("research", __name__, url_prefix="/research")
 
@@ -54,6 +54,35 @@ def run():
     start_pipeline(run_id, url)
     current_app.logger.warning("[PIPELINE] Background thread for run %s dispatched", run_id)
     return jsonify({"run_id": run_id, "duplicate": False}), 202
+
+
+@research_bp.route("/run/<int:run_id>/retry", methods=["POST"])
+@login_required
+def retry_run(run_id: int):
+    current_app.logger.warning("[PIPELINE] Retry requested for run %s", run_id)
+    run = get_run(run_id)
+    if not run:
+        return jsonify({"error": "Run not found"}), 404
+    if run["status"] not in {"error", "complete"}:
+        return jsonify({"error": f"Cannot retry a run with status '{run['status']}'"}), 400
+
+    resume_from = _determine_resume_stage(run)
+    current_app.logger.warning("[PIPELINE] Retrying run %s from %s", run_id, resume_from)
+    if resume_from == "complete":
+        return jsonify({"run_id": run_id, "resume_from": resume_from, "status": "complete"}), 200
+
+    update_run(
+        run_id,
+        status="running",
+        current_stage=resume_from,
+        progress={"events": []},
+        error_message=None,
+        error_stage=None,
+        completed_at=None,
+        **_clear_outputs_from(resume_from),
+    )
+    start_pipeline_resume(run_id, resume_from)
+    return jsonify({"run_id": run_id, "resume_from": resume_from, "status": "running"}), 202
 
 
 @research_bp.route("/runs/<int:run_id>")
@@ -168,6 +197,64 @@ def _serialize_run(run: dict) -> dict:
     for key, value in run.items():
         out[key] = value.isoformat() if hasattr(value, "isoformat") else value
     return out
+
+
+def _determine_resume_stage(run: dict) -> str:
+    if not run.get("stage1_output"):
+        return "stage1"
+    if not run.get("stage2_output"):
+        return "stage2"
+    if not run.get("stage3_plan_output") or not run.get("stage3_research"):
+        return "stage3"
+    if not run.get("stage4_output"):
+        return "stage4"
+    if not run.get("stage5_output"):
+        return "stage5"
+    return "complete"
+
+
+def _clear_outputs_from(resume_from: str) -> dict:
+    fields_by_stage = {
+        "stage1": {
+            "stage1_output": None,
+            "stage2_output": None,
+            "stage3_plan_output": None,
+            "stage3_research": None,
+            "stage4_output": None,
+            "stage5_output": None,
+            "live_market_data": None,
+            "portfolio_snapshot": None,
+        },
+        "stage2": {
+            "stage2_output": None,
+            "stage3_plan_output": None,
+            "stage3_research": None,
+            "stage4_output": None,
+            "stage5_output": None,
+            "live_market_data": None,
+            "portfolio_snapshot": None,
+        },
+        "stage3": {
+            "stage3_plan_output": None,
+            "stage3_research": None,
+            "stage4_output": None,
+            "stage5_output": None,
+            "live_market_data": None,
+            "portfolio_snapshot": None,
+        },
+        "stage4": {
+            "stage4_output": None,
+            "stage5_output": None,
+            "live_market_data": None,
+            "portfolio_snapshot": None,
+        },
+        "stage5": {
+            "stage5_output": None,
+            "live_market_data": None,
+            "portfolio_snapshot": None,
+        },
+    }
+    return fields_by_stage.get(resume_from, {})
 
 
 def _sse(event: dict) -> str:

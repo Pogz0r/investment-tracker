@@ -6,7 +6,14 @@ from threading import Thread
 from sqlalchemy import insert, select
 
 from research.db import get_engine, podcasts
-from research.jobs import append_event, mark_active, mark_inactive, update_run
+from research.jobs import (
+    append_event,
+    get_podcast_by_run,
+    get_run,
+    mark_active,
+    mark_inactive,
+    update_run,
+)
 from research.stages import (
     parse_research_prompts,
     run_stage1,
@@ -21,91 +28,146 @@ from research.utils import sha256_hash
 
 log = logging.getLogger(__name__)
 
+_STAGE_ORDER = ["transcript", "stage1", "stage2", "stage3", "stage4", "stage5"]
+
 
 def start_pipeline(run_id: int, youtube_url: str):
+    _start_pipeline(run_id, youtube_url, "transcript")
+
+
+def start_pipeline_resume(run_id: int, resume_from: str):
+    run = get_run(run_id)
+    if not run:
+        raise ValueError(f"Run {run_id} not found")
+    if resume_from == "complete":
+        log.warning("[PIPELINE %s] Retry skipped because run is already complete", run_id)
+        return
+    _start_pipeline(run_id, run["youtube_url"], resume_from)
+
+
+def _start_pipeline(run_id: int, youtube_url: str, resume_from: str):
+    if resume_from not in _STAGE_ORDER:
+        raise ValueError(f"Unknown resume stage: {resume_from}")
     if not mark_active(run_id):
         log.warning("[PIPELINE %s] Start skipped because run is already active", run_id)
         return
     if os.environ.get("RESEARCH_SYNC_MODE", "").strip().lower() in {"1", "true", "yes"}:
-        log.warning("[PIPELINE %s] Running synchronously for test mode", run_id)
-        _run_pipeline(run_id, youtube_url)
+        log.warning("[PIPELINE %s] Running synchronously for test mode (resume_from=%s)", run_id, resume_from)
+        _run_pipeline(run_id, youtube_url, resume_from)
         return
-    log.warning("[PIPELINE %s] Starting daemon background thread", run_id)
-    thread = Thread(target=_run_pipeline, args=(run_id, youtube_url), daemon=True)
+    log.warning("[PIPELINE %s] Starting daemon background thread (resume_from=%s)", run_id, resume_from)
+    thread = Thread(target=_run_pipeline, args=(run_id, youtube_url, resume_from), daemon=True)
     thread.start()
 
 
-def _run_pipeline(run_id: int, youtube_url: str):
-    log.warning("[PIPELINE %s] Thread started, fetching transcript", run_id)
+def _run_pipeline(run_id: int, youtube_url: str, resume_from: str = "transcript"):
+    log.warning("[PIPELINE %s] Thread started (resume_from=%s)", run_id, resume_from)
     try:
-        update_run(run_id, status="running", current_stage="transcript")
-        _event(run_id, {"type": "stage_start", "stage": "transcript", "label": "Transcript"})
-        transcript_payload = fetch_transcript(youtube_url)
-        log.warning(
-            "[PIPELINE %s] Transcript fetched: %s words via %s",
-            run_id,
-            transcript_payload.get("word_count"),
-            transcript_payload.get("source"),
-        )
-        podcast_id = _upsert_podcast(youtube_url, transcript_payload)
-        update_run(run_id, podcast_id=podcast_id)
-        _event(run_id, {"type": "stage_done", "stage": "transcript"})
+        run = get_run(run_id)
+        if not run:
+            raise RuntimeError(f"Run {run_id} not found")
+        update_run(run_id, status="running", completed_at=None)
 
-        log.warning("[PIPELINE %s] Starting Stage 1 (Gemini)", run_id)
-        _event(run_id, {"type": "stage_start", "stage": 1, "label": "Signal Extraction"})
-        update_run(run_id, current_stage="stage1")
-        stage1 = run_stage1(transcript_payload["transcript"])
-        log.warning("[PIPELINE %s] Stage 1 complete: %s chars", run_id, len(stage1 or ""))
-        update_run(run_id, stage1_output=stage1)
-        _event(run_id, {"type": "stage_done", "stage": 1})
+        transcript_text = None
+        if _should_run(resume_from, "transcript"):
+            update_run(run_id, current_stage="transcript")
+            _event(run_id, {"type": "stage_start", "stage": "transcript", "label": "Transcript"})
+            transcript_payload = fetch_transcript(youtube_url)
+            log.warning(
+                "[PIPELINE %s] Transcript fetched: %s words via %s",
+                run_id,
+                transcript_payload.get("word_count"),
+                transcript_payload.get("source"),
+            )
+            podcast_id = _upsert_podcast(youtube_url, transcript_payload)
+            update_run(run_id, podcast_id=podcast_id)
+            transcript_text = transcript_payload["transcript"]
+            _event(run_id, {"type": "stage_done", "stage": "transcript"})
+        else:
+            podcast = get_podcast_by_run(run_id)
+            if podcast:
+                transcript_text = podcast["transcript"]
+                log.warning("[PIPELINE %s] Transcript skipped (loaded from DB)", run_id)
+                _event(run_id, {"type": "stage_skipped", "stage": "transcript"})
 
-        log.warning("[PIPELINE %s] Starting Stage 2 (Claude)", run_id)
-        _event(run_id, {"type": "stage_start", "stage": 2, "label": "Thematic Analysis"})
-        update_run(run_id, current_stage="stage2")
-        stage2 = run_stage2(stage1)
-        log.warning("[PIPELINE %s] Stage 2 complete: %s chars", run_id, len(stage2 or ""))
-        update_run(run_id, stage2_output=stage2)
-        _event(run_id, {"type": "stage_done", "stage": 2})
+        if _should_run(resume_from, "stage1"):
+            if not transcript_text:
+                transcript_text = _load_or_fetch_transcript(run_id, youtube_url)
+            log.warning("[PIPELINE %s] Starting Stage 1 (Gemini)", run_id)
+            _event(run_id, {"type": "stage_start", "stage": 1, "label": "Signal Extraction"})
+            update_run(run_id, current_stage="stage1")
+            stage1 = run_stage1(transcript_text)
+            log.warning("[PIPELINE %s] Stage 1 complete: %s chars", run_id, len(stage1 or ""))
+            update_run(run_id, stage1_output=stage1)
+            _event(run_id, {"type": "stage_done", "stage": 1})
+        else:
+            stage1 = _require_output(run, "stage1_output", run_id)
+            log.warning("[PIPELINE %s] Stage 1 skipped (loaded from DB)", run_id)
+            _event(run_id, {"type": "stage_skipped", "stage": 1})
 
-        log.warning("[PIPELINE %s] Starting Stage 3 plan", run_id)
-        _event(run_id, {"type": "stage_start", "stage": 3, "label": "Parallel Research"})
-        update_run(run_id, current_stage="stage3")
-        stage3_plan = run_stage3_plan(stage1, stage2)
-        prompts = parse_research_prompts(stage3_plan)
-        log.warning("[PIPELINE %s] Stage 3 plan complete: %s prompts", run_id, len(prompts))
-        update_run(run_id, stage3_plan_output=stage3_plan)
-        _event(
-            run_id,
-            {
-                "type": "research_prompts_dispatched",
-                "count": len(prompts),
-                "titles": [prompt["title"] for prompt in prompts],
-            },
-        )
-        log.warning("[PIPELINE %s] Dispatching Stage 3 parallel research", run_id)
-        research = run_stage3_research(
-            prompts,
-            on_prompt_done=lambda prompt_id, completed, total: _event(
+        if _should_run(resume_from, "stage2"):
+            log.warning("[PIPELINE %s] Starting Stage 2 (Claude)", run_id)
+            _event(run_id, {"type": "stage_start", "stage": 2, "label": "Thematic Analysis"})
+            update_run(run_id, current_stage="stage2")
+            stage2 = run_stage2(stage1)
+            log.warning("[PIPELINE %s] Stage 2 complete: %s chars", run_id, len(stage2 or ""))
+            update_run(run_id, stage2_output=stage2)
+            _event(run_id, {"type": "stage_done", "stage": 2})
+        else:
+            stage2 = _require_output(run, "stage2_output", run_id)
+            log.warning("[PIPELINE %s] Stage 2 skipped (loaded from DB)", run_id)
+            _event(run_id, {"type": "stage_skipped", "stage": 2})
+
+        if _should_run(resume_from, "stage3"):
+            log.warning("[PIPELINE %s] Starting Stage 3 plan", run_id)
+            _event(run_id, {"type": "stage_start", "stage": 3, "label": "Parallel Research"})
+            update_run(run_id, current_stage="stage3")
+            stage3_plan = run_stage3_plan(stage1, stage2)
+            prompts = parse_research_prompts(stage3_plan)
+            log.warning("[PIPELINE %s] Stage 3 plan complete: %s prompts", run_id, len(prompts))
+            update_run(run_id, stage3_plan_output=stage3_plan)
+            _event(
                 run_id,
                 {
-                    "type": "research_prompt_done",
-                    "prompt_id": prompt_id,
-                    "completed": completed,
-                    "total": total,
+                    "type": "research_prompts_dispatched",
+                    "count": len(prompts),
+                    "titles": [prompt["title"] for prompt in prompts],
                 },
-            ),
-        )
-        log.warning("[PIPELINE %s] Stage 3 research complete: %s prompts", run_id, len(research))
-        update_run(run_id, stage3_research=research)
-        _event(run_id, {"type": "stage_done", "stage": 3})
+            )
+            log.warning("[PIPELINE %s] Dispatching Stage 3 parallel research", run_id)
+            research = run_stage3_research(
+                prompts,
+                on_prompt_done=lambda prompt_id, completed, total: _event(
+                    run_id,
+                    {
+                        "type": "research_prompt_done",
+                        "prompt_id": prompt_id,
+                        "completed": completed,
+                        "total": total,
+                    },
+                ),
+            )
+            log.warning("[PIPELINE %s] Stage 3 research complete: %s prompts", run_id, len(research))
+            update_run(run_id, stage3_research=research)
+            _event(run_id, {"type": "stage_done", "stage": 3})
+        else:
+            stage3_plan = _require_output(run, "stage3_plan_output", run_id)
+            research = _require_output(run, "stage3_research", run_id)
+            log.warning("[PIPELINE %s] Stage 3 skipped (loaded from DB)", run_id)
+            _event(run_id, {"type": "stage_skipped", "stage": 3})
 
-        log.warning("[PIPELINE %s] Starting Stage 4 (Gemini)", run_id)
-        _event(run_id, {"type": "stage_start", "stage": 4, "label": "Consolidation"})
-        update_run(run_id, current_stage="stage4")
-        stage4 = run_stage4(stage2, research)
-        log.warning("[PIPELINE %s] Stage 4 complete: %s chars", run_id, len(stage4 or ""))
-        update_run(run_id, stage4_output=stage4)
-        _event(run_id, {"type": "stage_done", "stage": 4})
+        if _should_run(resume_from, "stage4"):
+            log.warning("[PIPELINE %s] Starting Stage 4 (Gemini)", run_id)
+            _event(run_id, {"type": "stage_start", "stage": 4, "label": "Consolidation"})
+            update_run(run_id, current_stage="stage4")
+            stage4 = run_stage4(stage2, research)
+            log.warning("[PIPELINE %s] Stage 4 complete: %s chars", run_id, len(stage4 or ""))
+            update_run(run_id, stage4_output=stage4)
+            _event(run_id, {"type": "stage_done", "stage": 4})
+        else:
+            stage4 = _require_output(run, "stage4_output", run_id)
+            log.warning("[PIPELINE %s] Stage 4 skipped (loaded from DB)", run_id)
+            _event(run_id, {"type": "stage_skipped", "stage": 4})
 
         log.warning("[PIPELINE %s] Starting Stage 5 (Claude Opus 4.7 thinking)", run_id)
         _event(run_id, {"type": "stage_start", "stage": 5, "label": "Equity Screen"})
@@ -136,17 +198,39 @@ def _run_pipeline(run_id: int, youtube_url: str):
         _event(run_id, {"type": "final", "status": "complete"})
     except Exception as exc:
         log.error("[PIPELINE %s] FAILED: %s: %s", run_id, type(exc).__name__, exc, exc_info=True)
+        current = get_run(run_id) or {}
         update_run(
             run_id,
             status="error",
             error_message=str(exc),
-            error_stage="pipeline",
+            error_stage=current.get("current_stage") or "pipeline",
             completed_at=datetime.now(timezone.utc),
         )
         _event(run_id, {"type": "error", "message": str(exc)})
         _event(run_id, {"type": "final", "status": "error"})
     finally:
         mark_inactive(run_id)
+
+
+def _should_run(resume_from: str, stage: str) -> bool:
+    return _STAGE_ORDER.index(stage) >= _STAGE_ORDER.index(resume_from)
+
+
+def _require_output(run: dict, field: str, run_id: int):
+    value = run.get(field)
+    if value is None or value == "":
+        raise RuntimeError(f"Cannot resume run {run_id}; missing {field}")
+    return value
+
+
+def _load_or_fetch_transcript(run_id: int, youtube_url: str) -> str:
+    podcast = get_podcast_by_run(run_id)
+    if podcast:
+        return podcast["transcript"]
+    transcript_payload = fetch_transcript(youtube_url)
+    podcast_id = _upsert_podcast(youtube_url, transcript_payload)
+    update_run(run_id, podcast_id=podcast_id)
+    return transcript_payload["transcript"]
 
 
 def _event(run_id: int, event: dict):

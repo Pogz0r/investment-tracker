@@ -18,7 +18,8 @@ def generate(prompt: str, model: str, thinking: bool = False, system: str = "") 
     if system:
         kwargs["system"] = system
     if thinking:
-        kwargs["thinking"] = {"type": "enabled", "budget_tokens": 5000}
+        kwargs["thinking"] = {"type": "adaptive"}
+        kwargs["output_config"] = {"effort": "high"}
     response = client.messages.create(**kwargs)
     return "\n".join(
         block.text for block in response.content if getattr(block, "type", "") == "text"
