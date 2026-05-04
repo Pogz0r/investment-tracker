@@ -23,3 +23,4 @@ PERPLEXITY_STAGE3_MODEL = os.environ.get("PERPLEXITY_STAGE3_MODEL", "sonar-pro")
 
 SELF_BASE_URL = os.environ.get("SELF_BASE_URL", "").rstrip("/")
 PORTFOLIO_EXPORT_TOKEN = os.environ.get("PORTFOLIO_EXPORT_TOKEN", "")
+SUPADATA_API_KEY = os.environ.get("SUPADATA_API_KEY", "")

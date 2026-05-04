@@ -39,7 +39,7 @@ services:
         sync: false
       - key: PERPLEXITY_API_KEY
         sync: false
-      - key: OPENAI_API_KEY
+      - key: SUPADATA_API_KEY
         sync: false
       - key: GEMINI_STAGE1_MODEL
         value: gemini-2.5-pro
