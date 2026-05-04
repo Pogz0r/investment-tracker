@@ -25,6 +25,10 @@ let runStartTime = null;
 let stageStartTime = null;
 let currentStage = null;
 let elapsedTimerInterval = null;
+let consecutiveRefreshFailures = 0;
+
+const POLL_INTERVAL_MS = 5000;
+const MAX_CONSECUTIVE_REFRESH_FAILURES = 3;
 
 document.getElementById("researchForm").addEventListener("submit", async (event) => {
   event.preventDefault();
@@ -70,8 +74,8 @@ function connectStream(runId) {
 function startPolling() {
   stopPolling();
   pollTimer = setInterval(() => {
-    refreshRun().catch((error) => showError(error.message));
-  }, 2500);
+    refreshRun();
+  }, POLL_INTERVAL_MS);
 }
 
 function stopPolling() {
@@ -164,9 +168,29 @@ async function handleEvent(event) {
 
 async function refreshRun() {
   if (!currentRunId) return;
-  const response = await fetch(`/research/runs/${currentRunId}`);
-  if (!response.ok) throw new Error("Failed to refresh run state.");
-  const run = await response.json();
+  try {
+    const response = await fetch(`/research/runs/${currentRunId}`, {
+      credentials: "same-origin",
+      cache: "no-store",
+    });
+    if (!response.ok) throw new Error(`HTTP ${response.status}`);
+    const run = await response.json();
+    consecutiveRefreshFailures = 0;
+    hideRefreshError();
+    applyRunState(run);
+    return run;
+  } catch (error) {
+    consecutiveRefreshFailures += 1;
+    if (consecutiveRefreshFailures >= MAX_CONSECUTIVE_REFRESH_FAILURES) {
+      showRefreshError(
+        `Connection unstable (${consecutiveRefreshFailures} failed refreshes). Pipeline may still be running - refresh the page in a moment.`
+      );
+    }
+    return null;
+  }
+}
+
+function applyRunState(run) {
   if (!runStartTime && run.started_at) startElapsedTimer(run.started_at);
   reconcileRunState(run);
   renderOutputs(run);
@@ -179,7 +203,23 @@ async function refreshRun() {
     stopPolling();
     stopElapsedTimer();
   }
-  return run;
+}
+
+function showRefreshError(message) {
+  const el = document.getElementById("errorMsg") || document.querySelector(".refresh-error");
+  if (el) {
+    el.textContent = message;
+    el.hidden = false;
+    el.style.display = "block";
+  }
+}
+
+function hideRefreshError() {
+  const el = document.getElementById("errorMsg") || document.querySelector(".refresh-error");
+  if (el && el.textContent.startsWith("Connection unstable")) {
+    el.hidden = true;
+    el.style.display = "none";
+  }
 }
 
 function reconcileRunState(run) {
@@ -405,7 +445,9 @@ function resetUI() {
   document.getElementById("stageOutputs").innerHTML = "";
   document.getElementById("finalActions").hidden = true;
   document.getElementById("errorMsg").hidden = true;
+  document.getElementById("errorMsg").style.display = "";
   stageOutputs = {};
+  consecutiveRefreshFailures = 0;
 }
 
 function setRunning(isRunning) {
@@ -418,6 +460,7 @@ function showError(message) {
   const el = document.getElementById("errorMsg");
   el.textContent = message;
   el.hidden = false;
+  el.style.display = "block";
 }
 
 function formatNumber(value) {

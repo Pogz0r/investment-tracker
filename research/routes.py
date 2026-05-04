@@ -3,7 +3,7 @@ import logging
 import os
 import time
 
-from flask import Blueprint, Response, jsonify, render_template, request
+from flask import Blueprint, Response, current_app, jsonify, render_template, request, stream_with_context
 from flask_login import login_required
 
 from research.db import run_migrations
@@ -52,31 +52,53 @@ def run():
 @research_bp.route("/runs/<int:run_id>")
 @login_required
 def run_state(run_id: int):
-    run = get_run(run_id)
-    if not run:
-        return jsonify({"error": "Run not found"}), 404
-    return jsonify(_serialize_run(run))
+    try:
+        run = get_run(run_id)
+        if not run:
+            return jsonify({"error": "Run not found"}), 404
+        return jsonify(_serialize_run(run))
+    except Exception as exc:
+        current_app.logger.warning("Failed to fetch run %s: %s", run_id, exc)
+        return jsonify({"error": "transient", "message": "State temporarily unavailable"}), 503
 
 
 @research_bp.route("/stream/<int:run_id>")
 @login_required
 def stream(run_id: int):
     def generate():
-        sent = 0
-        while True:
-            run = get_run(run_id)
+        last_event_index = 0
+        max_iterations = 600
+        iteration = 0
+        while iteration < max_iterations:
+            iteration += 1
+            try:
+                run = get_run(run_id)
+            except Exception:
+                yield ": keepalive\n\n"
+                time.sleep(2)
+                continue
+
             if not run:
                 yield _sse({"type": "error", "message": "Run not found"})
                 return
-            events = ((run.get("progress") or {}).get("events") or [])
-            for event in events[sent:]:
-                yield _sse(event)
-            sent = len(events)
-            if run["status"] in {"complete", "error"}:
-                return
-            time.sleep(1)
 
-    return Response(generate(), mimetype="text/event-stream")
+            events = ((run.get("progress") or {}).get("events") or [])
+            for event in events[last_event_index:]:
+                yield _sse(event)
+            last_event_index = len(events)
+
+            if run["status"] in {"complete", "error"}:
+                yield _sse({"type": "final", "status": run["status"], "run_id": run_id})
+                return
+
+            yield ": keepalive\n\n"
+            time.sleep(2)
+
+    response = Response(stream_with_context(generate()), mimetype="text/event-stream")
+    response.headers["Cache-Control"] = "no-cache"
+    response.headers["X-Accel-Buffering"] = "no"
+    response.headers["Connection"] = "keep-alive"
+    return response
 
 
 @research_bp.route("/report/<int:run_id>/<path:filename>")

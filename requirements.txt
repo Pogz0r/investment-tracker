@@ -6,6 +6,7 @@ yfinance>=0.2.36
 requests>=2.31.0
 python-dotenv>=1.0.0
 gunicorn>=21.2.0
+gevent>=24.0
 psycopg2-binary>=2.9.9
 pdfplumber>=0.10.0
 Pillow>=10.0.0

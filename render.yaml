@@ -1,3 +1,9 @@
+# IMPORTANT: Render may ignore startCommand here and use its default.
+# To force the correct gunicorn config, set the Start Command MANUALLY in:
+#   Render Dashboard -> Service -> Settings -> Start Command
+# Set it to:
+#   gunicorn --bind 0.0.0.0:$PORT --workers 2 --threads 8 --worker-class gthread --timeout 900 --graceful-timeout 30 --keep-alive 5 --log-level info app:app
+
 databases:
   - name: bdc-portfolio-db
     databaseName: portfolio
