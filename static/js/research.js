@@ -7,10 +7,24 @@ const STAGE_LABELS = {
   5: "Equity Screen",
 };
 
+const STAGE_META = {
+  transcript: { label: "Fetching transcript", model: "youtube-transcript-api / Supadata", emoji: "📄" },
+  1: { label: "Extracting investment signals from transcript", model: "Gemini 2.5 Pro", emoji: "🎯" },
+  2: { label: "Building thematic deep-dive (TAM, competitors, beneficiaries)", model: "Claude Opus 4.6", emoji: "🧠" },
+  3: { label: "Designing research plan and dispatching parallel queries", model: "Claude Opus 4.6 + Perplexity Sonar Pro", emoji: "🔍" },
+  4: { label: "Consolidating evidence into thesis with confidence scoring", model: "Gemini 2.5 Pro", emoji: "📊" },
+  5: { label: "Running equity screen with personalized portfolio observations", model: "Claude Opus 4.7 (extended thinking)", emoji: "💡" },
+  enrichment: { label: "Fetching live market data via yfinance", model: "yfinance", emoji: "💹" },
+};
+
 let currentRunId = null;
 let eventSource = null;
 let stageOutputs = {};
 let pollTimer = null;
+let runStartTime = null;
+let stageStartTime = null;
+let currentStage = null;
+let elapsedTimerInterval = null;
 
 document.getElementById("researchForm").addEventListener("submit", async (event) => {
   event.preventDefault();
@@ -32,6 +46,8 @@ async function runPipeline() {
     const payload = await response.json();
     if (!response.ok) throw new Error(payload.error || "Pipeline start failed.");
     currentRunId = payload.run_id;
+    startElapsedTimer();
+    setActiveStage("transcript");
     connectStream(currentRunId);
     startPolling();
     await refreshRun();
@@ -65,8 +81,64 @@ function stopPolling() {
   }
 }
 
+function formatElapsed(seconds) {
+  if (seconds < 60) return `${seconds}s`;
+  const minutes = Math.floor(seconds / 60);
+  const remainder = seconds % 60;
+  return `${minutes}m ${remainder.toString().padStart(2, "0")}s`;
+}
+
+function formatTimer(seconds) {
+  const minutes = Math.floor(seconds / 60).toString().padStart(2, "0");
+  const remainder = (seconds % 60).toString().padStart(2, "0");
+  return `${minutes}:${remainder}`;
+}
+
+function startElapsedTimer(startedAt = null) {
+  runStartTime = startedAt ? new Date(startedAt).getTime() : Date.now();
+  if (Number.isNaN(runStartTime)) runStartTime = Date.now();
+  stageStartTime = Date.now();
+  if (elapsedTimerInterval) clearInterval(elapsedTimerInterval);
+  elapsedTimerInterval = setInterval(updateElapsedDisplay, 1000);
+  updateElapsedDisplay();
+}
+
+function stopElapsedTimer() {
+  if (elapsedTimerInterval) {
+    clearInterval(elapsedTimerInterval);
+    elapsedTimerInterval = null;
+  }
+}
+
+function updateElapsedDisplay() {
+  if (!runStartTime) return;
+  const totalSeconds = Math.max(0, Math.floor((Date.now() - runStartTime) / 1000));
+  const stageSeconds = stageStartTime ? Math.max(0, Math.floor((Date.now() - stageStartTime) / 1000)) : 0;
+  const totalEl = document.getElementById("total-elapsed");
+  const stageEl = document.getElementById("current-stage-elapsed");
+  if (totalEl) totalEl.textContent = formatTimer(totalSeconds);
+  if (stageEl) stageEl.textContent = formatElapsed(stageSeconds);
+}
+
+function setActiveStage(stage) {
+  if (currentStage !== stage) {
+    currentStage = stage;
+    stageStartTime = Date.now();
+  }
+  const meta = STAGE_META[stage] || { label: `Stage ${stage}`, model: "—", emoji: "⏳" };
+  const descEl = document.getElementById("current-stage-description");
+  const modelEl = document.getElementById("current-stage-model");
+  const emojiEl = document.getElementById("current-stage-emoji");
+  if (descEl) descEl.textContent = meta.label;
+  if (modelEl) modelEl.textContent = meta.model;
+  if (emojiEl) emojiEl.textContent = meta.emoji;
+  markStageActive(stage);
+  updateElapsedDisplay();
+}
+
 async function handleEvent(event) {
-  if (event.type === "stage_start") markStageActive(event.stage);
+  if (!runStartTime) startElapsedTimer();
+  if (event.type === "stage_start") setActiveStage(event.stage);
   if (event.type === "stage_done") {
     markStageDone(event.stage);
     await refreshRun();
@@ -79,8 +151,10 @@ async function handleEvent(event) {
   }
   if (event.type === "error") {
     showError(event.message);
+    setLiveStatusError();
     setRunning(false);
     stopPolling();
+    stopElapsedTimer();
   }
   if (event.type === "final" && eventSource) {
     eventSource.close();
@@ -93,14 +167,17 @@ async function refreshRun() {
   const response = await fetch(`/research/runs/${currentRunId}`);
   if (!response.ok) throw new Error("Failed to refresh run state.");
   const run = await response.json();
+  if (!runStartTime && run.started_at) startElapsedTimer(run.started_at);
   reconcileRunState(run);
   renderOutputs(run);
   renderReferenceRail(run);
   if (run.status === "complete") onComplete();
   if (run.status === "error") {
     showError(run.error_message || "Pipeline failed.");
+    setLiveStatusError();
     setRunning(false);
     stopPolling();
+    stopElapsedTimer();
   }
   return run;
 }
@@ -119,6 +196,7 @@ function reconcileRunState(run) {
   if (run.stage5_output) markStageDone(5);
 
   if (run.status === "running" && stage) markStageActive(stage);
+  if (run.status === "running" && stage) setActiveStage(stage);
 }
 
 function currentStageNumber(currentStage) {
@@ -240,6 +318,9 @@ function markStageActive(stage) {
   const el = document.getElementById(stage === "transcript" ? "pill-transcript" : `pill-${stage}`);
   if (!el) return;
   if (el.classList.contains("done")) return;
+  document.querySelectorAll(".stage-step.active").forEach((step) => {
+    if (step !== el) step.classList.remove("active");
+  });
   el.classList.add("active");
 }
 
@@ -253,6 +334,8 @@ function markStageDone(stage) {
 function onComplete() {
   setRunning(false);
   stopPolling();
+  setLiveStatusComplete();
+  stopElapsedTimer();
   if (eventSource) {
     eventSource.close();
     eventSource = null;
@@ -262,20 +345,64 @@ function onComplete() {
   document.getElementById("downloadFull").href = `/research/report/${currentRunId}/full.md`;
 }
 
+function resetLiveStatusPanel() {
+  const panel = document.getElementById("live-status");
+  if (!panel) return;
+  panel.hidden = false;
+  panel.classList.remove("complete", "error");
+  const labelEl = panel.querySelector(".status-label");
+  if (labelEl) labelEl.textContent = "RUNNING";
+  const descEl = document.getElementById("current-stage-description");
+  const modelEl = document.getElementById("current-stage-model");
+  const emojiEl = document.getElementById("current-stage-emoji");
+  const totalEl = document.getElementById("total-elapsed");
+  const stageEl = document.getElementById("current-stage-elapsed");
+  if (descEl) descEl.textContent = "Initializing pipeline...";
+  if (modelEl) modelEl.textContent = "—";
+  if (emojiEl) emojiEl.textContent = "⏳";
+  if (totalEl) totalEl.textContent = "00:00";
+  if (stageEl) stageEl.textContent = "0s";
+}
+
+function setLiveStatusComplete() {
+  const panel = document.getElementById("live-status");
+  if (!panel) return;
+  panel.classList.remove("error");
+  panel.classList.add("complete");
+  const labelEl = panel.querySelector(".status-label");
+  if (labelEl) labelEl.textContent = "COMPLETE";
+  const totalSeconds = runStartTime ? Math.max(0, Math.floor((Date.now() - runStartTime) / 1000)) : 0;
+  const descEl = document.getElementById("current-stage-description");
+  const modelEl = document.getElementById("current-stage-model");
+  if (descEl) descEl.textContent = `Pipeline finished in ${formatTimer(totalSeconds)}`;
+  if (modelEl) modelEl.textContent = "All stages complete";
+  updateElapsedDisplay();
+}
+
+function setLiveStatusError() {
+  const panel = document.getElementById("live-status");
+  if (!panel) return;
+  panel.classList.remove("complete");
+  panel.classList.add("error");
+  const labelEl = panel.querySelector(".status-label");
+  if (labelEl) labelEl.textContent = "ERROR";
+}
+
 function resetUI() {
   stopPolling();
+  stopElapsedTimer();
   if (eventSource) {
     eventSource.close();
     eventSource = null;
   }
+  runStartTime = null;
+  stageStartTime = null;
+  currentStage = null;
   document.querySelectorAll(".stage-step").forEach((step) => step.classList.remove("active", "done"));
+  resetLiveStatusPanel();
   document.getElementById("stage3Panel").hidden = true;
   document.getElementById("promptProgress").style.width = "0";
-  document.getElementById("stageOutputs").innerHTML = `
-    <div class="empty-research-state">
-      <div class="card-label">Running</div>
-      <p>The pipeline is starting. Stage outputs will appear here as they complete.</p>
-    </div>`;
+  document.getElementById("stageOutputs").innerHTML = "";
   document.getElementById("finalActions").hidden = true;
   document.getElementById("errorMsg").hidden = true;
   stageOutputs = {};

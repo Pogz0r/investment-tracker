@@ -61,6 +61,27 @@
 
       <div id="errorMsg" class="research-error" hidden></div>
 
+      <section id="live-status" class="live-status-panel" hidden>
+        <div class="live-status-header">
+          <div class="live-status-title">
+            <span class="status-pulse"></span>
+            <span class="status-label">RUNNING</span>
+          </div>
+          <div class="live-status-timer" id="total-elapsed">00:00</div>
+        </div>
+        <div class="live-status-body">
+          <div class="current-stage-line">
+            <span class="stage-emoji" id="current-stage-emoji">⏳</span>
+            <span class="stage-description" id="current-stage-description">Initializing pipeline...</span>
+          </div>
+          <div class="current-stage-meta">
+            <span class="stage-model" id="current-stage-model">—</span>
+            <span class="stage-elapsed-divider">·</span>
+            <span class="stage-elapsed" id="current-stage-elapsed">0s</span>
+          </div>
+        </div>
+      </section>
+
       <section id="stage3Panel" class="parallel-execution" hidden>
         <div class="parallel-head">
           <div>
