@@ -10,6 +10,7 @@ const STAGE_LABELS = {
 let currentRunId = null;
 let eventSource = null;
 let stageOutputs = {};
+let pollTimer = null;
 
 document.getElementById("researchForm").addEventListener("submit", async (event) => {
   event.preventDefault();
@@ -32,10 +33,8 @@ async function runPipeline() {
     if (!response.ok) throw new Error(payload.error || "Pipeline start failed.");
     currentRunId = payload.run_id;
     connectStream(currentRunId);
-    if (payload.duplicate) {
-      await refreshRun();
-      setRunning(false);
-    }
+    startPolling();
+    await refreshRun();
   } catch (error) {
     showError(error.message);
     setRunning(false);
@@ -50,6 +49,20 @@ function connectStream(runId) {
     if (eventSource) eventSource.close();
     setTimeout(() => currentRunId && connectStream(currentRunId), 1800);
   };
+}
+
+function startPolling() {
+  stopPolling();
+  pollTimer = setInterval(() => {
+    refreshRun().catch((error) => showError(error.message));
+  }, 2500);
+}
+
+function stopPolling() {
+  if (pollTimer) {
+    clearInterval(pollTimer);
+    pollTimer = null;
+  }
 }
 
 async function handleEvent(event) {
@@ -67,16 +80,61 @@ async function handleEvent(event) {
   if (event.type === "error") {
     showError(event.message);
     setRunning(false);
+    stopPolling();
   }
-  if (event.type === "final" && eventSource) eventSource.close();
+  if (event.type === "final" && eventSource) {
+    eventSource.close();
+    if (event.status !== "complete") stopPolling();
+  }
 }
 
 async function refreshRun() {
   if (!currentRunId) return;
   const response = await fetch(`/research/runs/${currentRunId}`);
+  if (!response.ok) throw new Error("Failed to refresh run state.");
   const run = await response.json();
+  reconcileRunState(run);
   renderOutputs(run);
   renderReferenceRail(run);
+  if (run.status === "complete") onComplete();
+  if (run.status === "error") {
+    showError(run.error_message || "Pipeline failed.");
+    setRunning(false);
+    stopPolling();
+  }
+  return run;
+}
+
+function reconcileRunState(run) {
+  const stage = currentStageNumber(run.current_stage);
+  if (stage && stage !== "transcript") markStageDone("transcript");
+  for (const previousStage of completedStagesBefore(stage)) {
+    markStageDone(previousStage);
+  }
+
+  if (run.stage1_output) markStageDone(1);
+  if (run.stage2_output) markStageDone(2);
+  if (run.stage3_research) markStageDone(3);
+  if (run.stage4_output) markStageDone(4);
+  if (run.stage5_output) markStageDone(5);
+
+  if (run.status === "running" && stage) markStageActive(stage);
+}
+
+function currentStageNumber(currentStage) {
+  if (currentStage === "transcript") return "transcript";
+  if (currentStage === "stage1") return 1;
+  if (currentStage === "stage2") return 2;
+  if (currentStage === "stage3") return 3;
+  if (currentStage === "stage4") return 4;
+  if (currentStage === "stage5") return 5;
+  return null;
+}
+
+function completedStagesBefore(stage) {
+  if (stage === "transcript" || !stage) return [];
+  const order = [1, 2, 3, 4, 5];
+  return order.filter((item) => item < stage);
 }
 
 function renderOutputs(run) {
@@ -181,6 +239,7 @@ function formatCitation(citation) {
 function markStageActive(stage) {
   const el = document.getElementById(stage === "transcript" ? "pill-transcript" : `pill-${stage}`);
   if (!el) return;
+  if (el.classList.contains("done")) return;
   el.classList.add("active");
 }
 
@@ -193,12 +252,22 @@ function markStageDone(stage) {
 
 function onComplete() {
   setRunning(false);
+  stopPolling();
+  if (eventSource) {
+    eventSource.close();
+    eventSource = null;
+  }
   const actions = document.getElementById("finalActions");
   actions.hidden = false;
   document.getElementById("downloadFull").href = `/research/report/${currentRunId}/full.md`;
 }
 
 function resetUI() {
+  stopPolling();
+  if (eventSource) {
+    eventSource.close();
+    eventSource = null;
+  }
   document.querySelectorAll(".stage-step").forEach((step) => step.classList.remove("active", "done"));
   document.getElementById("stage3Panel").hidden = true;
   document.getElementById("promptProgress").style.width = "0";
