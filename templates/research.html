@@ -49,6 +49,53 @@
 
     <section class="research-workbench">
       <section class="research-command">
+        <section class="manual-mode-section">
+          <div class="manual-mode-toggle">
+            <label class="toggle-switch" aria-label="Manual mode">
+              <input type="checkbox" id="manualModeToggle" />
+              <span class="toggle-slider"></span>
+            </label>
+            <span class="toggle-label">Manual Mode</span>
+            <span class="toggle-help">Upload existing stage outputs to skip earlier stages</span>
+          </div>
+
+          <div id="manualModePanel" class="manual-mode-panel" hidden>
+            <p class="manual-mode-instructions">
+              Upload .md, .txt, or JSON files for stages you already have. The pipeline skips those stages and resumes from the next one. Stage 5 always runs fresh with live market data.
+            </p>
+            <div class="upload-grid">
+              <div class="upload-slot">
+                <label for="uploadStage1">Stage 1 - Signal Extraction</label>
+                <input type="file" id="uploadStage1" data-upload-stage="1" accept=".md,.txt" />
+                <span class="upload-status" id="uploadStatus1"></span>
+              </div>
+              <div class="upload-slot">
+                <label for="uploadStage2">Stage 2 - Thematic Analysis</label>
+                <input type="file" id="uploadStage2" data-upload-stage="2" accept=".md,.txt" />
+                <span class="upload-status" id="uploadStatus2"></span>
+              </div>
+              <div class="upload-slot">
+                <label for="uploadStage3Plan">Stage 3 Plan - Research Plan</label>
+                <input type="file" id="uploadStage3Plan" data-upload-stage="3-plan" accept=".md,.txt" />
+                <span class="upload-status" id="uploadStatus3Plan"></span>
+              </div>
+              <div class="upload-slot">
+                <label for="uploadStage3Research">Stage 3 Research - Findings</label>
+                <input type="file" id="uploadStage3Research" data-upload-stage="3-research" accept=".md,.txt,.json" />
+                <span class="upload-status" id="uploadStatus3Research"></span>
+              </div>
+              <div class="upload-slot">
+                <label for="uploadStage4">Stage 4 - Consolidation</label>
+                <input type="file" id="uploadStage4" data-upload-stage="4" accept=".md,.txt" />
+                <span class="upload-status" id="uploadStatus4"></span>
+              </div>
+            </div>
+            <div class="manual-mode-controls">
+              <button id="runManualBtn" type="button" disabled>Run From Uploaded Stages</button>
+              <button id="clearUploadsBtn" type="button">Clear All</button>
+            </div>
+          </div>
+        </section>
         <div>
           <div class="card-label">Agentic Research</div>
           <h1>Investment Podcast Pipeline</h1>
@@ -123,6 +170,6 @@
     </aside>
   </main>
 
-  <script src="/static/js/research.js?v=stage-retry-20260503"></script>
+  <script src="/static/js/research.js?v=manual-mode-20260505"></script>
 </body>
 </html>

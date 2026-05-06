@@ -139,6 +139,80 @@ def test_retry_skips_completed_stages_and_finishes_stage5(research_app):
     assert "Personalized Portfolio Observations" in run["stage5_output"]
 
 
+def test_manual_mode_with_stage4_upload_runs_only_stage5(research_app):
+    from research.jobs import get_run
+
+    client = research_app.test_client()
+
+    response = client.post(
+        "/research/run",
+        json={
+            "manual": True,
+            "uploaded_stages": {
+                "4": "# RESEARCH CONSOLIDATION\n\n## Updated Thesis\nFake uploaded thesis."
+            },
+        },
+    )
+
+    assert response.status_code == 202
+    payload = response.get_json()
+    assert payload["manual"] is True
+    assert payload["resume_from"] == "stage5"
+    run = get_run(payload["run_id"])
+    assert run["status"] == "complete"
+    assert run["stage1_output"] is None
+    assert run["stage4_output"].startswith("# RESEARCH CONSOLIDATION")
+    assert "Personalized Portfolio Observations" in run["stage5_output"]
+
+
+def test_manual_mode_rejects_stage3_partial_upload(research_app):
+    client = research_app.test_client()
+
+    response = client.post(
+        "/research/run",
+        json={"manual": True, "uploaded_stages": {"3-plan": "fake plan"}},
+    )
+
+    assert response.status_code == 400
+    assert "both" in response.get_json()["error"].lower()
+
+
+def test_manual_mode_requires_at_least_one_upload_or_url(research_app):
+    client = research_app.test_client()
+
+    response = client.post("/research/run", json={"manual": True, "uploaded_stages": {}})
+
+    assert response.status_code == 400
+
+
+def test_manual_mode_with_stage2_upload_resumes_from_stage3(research_app):
+    from research.jobs import get_run
+
+    client = research_app.test_client()
+
+    response = client.post(
+        "/research/run",
+        json={
+            "manual": True,
+            "uploaded_stages": {
+                "1": "# INVESTMENT MEMO\n\nUploaded signal memo.",
+                "2": "# THEMATIC DEEP-DIVE\n\nUploaded thematic memo.",
+            },
+        },
+    )
+
+    assert response.status_code == 202
+    payload = response.get_json()
+    assert payload["resume_from"] == "stage3"
+    run = get_run(payload["run_id"])
+    assert run["status"] == "complete"
+    assert run["stage1_output"].startswith("# INVESTMENT MEMO")
+    assert run["stage2_output"].startswith("# THEMATIC DEEP-DIVE")
+    assert run["stage3_plan_output"]
+    assert run["stage4_output"]
+    assert run["stage5_output"]
+
+
 def test_claude_thinking_uses_adaptive_output_config(monkeypatch):
     calls = {}
 

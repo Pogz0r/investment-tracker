@@ -70,26 +70,33 @@ def _run_pipeline(run_id: int, youtube_url: str, resume_from: str = "transcript"
 
         transcript_text = None
         if _should_run(resume_from, "transcript"):
-            update_run(run_id, current_stage="transcript")
-            _event(run_id, {"type": "stage_start", "stage": "transcript", "label": "Transcript"})
-            transcript_payload = fetch_transcript(youtube_url)
-            log.warning(
-                "[PIPELINE %s] Transcript fetched: %s words via %s",
-                run_id,
-                transcript_payload.get("word_count"),
-                transcript_payload.get("source"),
-            )
-            podcast_id = _upsert_podcast(youtube_url, transcript_payload)
-            update_run(run_id, podcast_id=podcast_id)
-            transcript_text = transcript_payload["transcript"]
-            _event(run_id, {"type": "stage_done", "stage": "transcript"})
+            if _is_manual_no_url(youtube_url):
+                log.warning("[PIPELINE %s] Manual mode with no URL; skipping transcript", run_id)
+                transcript_text = ""
+                _event(run_id, {"type": "stage_skipped", "stage": "transcript"})
+            else:
+                update_run(run_id, current_stage="transcript")
+                _event(run_id, {"type": "stage_start", "stage": "transcript", "label": "Transcript"})
+                transcript_payload = fetch_transcript(youtube_url)
+                log.warning(
+                    "[PIPELINE %s] Transcript fetched: %s words via %s",
+                    run_id,
+                    transcript_payload.get("word_count"),
+                    transcript_payload.get("source"),
+                )
+                podcast_id = _upsert_podcast(youtube_url, transcript_payload)
+                update_run(run_id, podcast_id=podcast_id)
+                transcript_text = transcript_payload["transcript"]
+                _event(run_id, {"type": "stage_done", "stage": "transcript"})
         else:
             podcast = get_podcast_by_run(run_id)
             if podcast:
                 transcript_text = podcast["transcript"]
                 log.warning("[PIPELINE %s] Transcript skipped (loaded from DB)", run_id)
                 _event(run_id, {"type": "stage_skipped", "stage": "transcript"})
-
+            else:
+                transcript_text = ""
+                log.warning("[PIPELINE %s] Resume from %s; transcript not needed", run_id, resume_from)
         if _should_run(resume_from, "stage1"):
             if not transcript_text:
                 transcript_text = _load_or_fetch_transcript(run_id, youtube_url)
@@ -101,8 +108,10 @@ def _run_pipeline(run_id: int, youtube_url: str, resume_from: str = "transcript"
             update_run(run_id, stage1_output=stage1)
             _event(run_id, {"type": "stage_done", "stage": 1})
         else:
-            stage1 = _require_output(run, "stage1_output", run_id)
-            log.warning("[PIPELINE %s] Stage 1 skipped (loaded from DB)", run_id)
+            stage1 = run.get("stage1_output")
+            if _resume_index(resume_from) <= _resume_index("stage4"):
+                stage1 = _require_output(run, "stage1_output", run_id)
+            log.warning("[PIPELINE %s] Stage 1 skipped%s", run_id, " (loaded from DB)" if stage1 else "")
             _event(run_id, {"type": "stage_skipped", "stage": 1})
 
         if _should_run(resume_from, "stage2"):
@@ -114,8 +123,10 @@ def _run_pipeline(run_id: int, youtube_url: str, resume_from: str = "transcript"
             update_run(run_id, stage2_output=stage2)
             _event(run_id, {"type": "stage_done", "stage": 2})
         else:
-            stage2 = _require_output(run, "stage2_output", run_id)
-            log.warning("[PIPELINE %s] Stage 2 skipped (loaded from DB)", run_id)
+            stage2 = run.get("stage2_output")
+            if _resume_index(resume_from) <= _resume_index("stage4"):
+                stage2 = _require_output(run, "stage2_output", run_id)
+            log.warning("[PIPELINE %s] Stage 2 skipped%s", run_id, " (loaded from DB)" if stage2 else "")
             _event(run_id, {"type": "stage_skipped", "stage": 2})
 
         if _should_run(resume_from, "stage3"):
@@ -151,9 +162,12 @@ def _run_pipeline(run_id: int, youtube_url: str, resume_from: str = "transcript"
             update_run(run_id, stage3_research=research)
             _event(run_id, {"type": "stage_done", "stage": 3})
         else:
-            stage3_plan = _require_output(run, "stage3_plan_output", run_id)
-            research = _require_output(run, "stage3_research", run_id)
-            log.warning("[PIPELINE %s] Stage 3 skipped (loaded from DB)", run_id)
+            stage3_plan = run.get("stage3_plan_output")
+            research = run.get("stage3_research")
+            if resume_from == "stage4":
+                stage3_plan = _require_output(run, "stage3_plan_output", run_id)
+                research = _require_output(run, "stage3_research", run_id)
+            log.warning("[PIPELINE %s] Stage 3 skipped%s", run_id, " (loaded from DB)" if research else "")
             _event(run_id, {"type": "stage_skipped", "stage": 3})
 
         if _should_run(resume_from, "stage4"):
@@ -213,7 +227,11 @@ def _run_pipeline(run_id: int, youtube_url: str, resume_from: str = "transcript"
 
 
 def _should_run(resume_from: str, stage: str) -> bool:
-    return _STAGE_ORDER.index(stage) >= _STAGE_ORDER.index(resume_from)
+    return _resume_index(stage) >= _resume_index(resume_from)
+
+
+def _resume_index(stage: str) -> int:
+    return _STAGE_ORDER.index(stage)
 
 
 def _require_output(run: dict, field: str, run_id: int):
@@ -227,10 +245,16 @@ def _load_or_fetch_transcript(run_id: int, youtube_url: str) -> str:
     podcast = get_podcast_by_run(run_id)
     if podcast:
         return podcast["transcript"]
+    if _is_manual_no_url(youtube_url):
+        raise RuntimeError("Cannot run Stage 1 without a YouTube URL or uploaded Stage 1 output")
     transcript_payload = fetch_transcript(youtube_url)
     podcast_id = _upsert_podcast(youtube_url, transcript_payload)
     update_run(run_id, podcast_id=podcast_id)
     return transcript_payload["transcript"]
+
+
+def _is_manual_no_url(youtube_url: str | None) -> bool:
+    return not youtube_url or youtube_url == "manual-mode-no-url"
 
 
 def _event(run_id: int, event: dict):

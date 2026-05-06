@@ -26,16 +26,28 @@ let stageStartTime = null;
 let currentStage = null;
 let elapsedTimerInterval = null;
 let consecutiveRefreshFailures = 0;
+const uploadedStages = {};
 
 const POLL_INTERVAL_MS = 5000;
 const MAX_CONSECUTIVE_REFRESH_FAILURES = 3;
 
 document.getElementById("researchForm").addEventListener("submit", async (event) => {
   event.preventDefault();
+  if (isManualMode()) {
+    await runManualPipeline();
+    return;
+  }
   await runPipeline();
 });
 
 document.getElementById("retryBtn").addEventListener("click", retryRun);
+document.getElementById("manualModeToggle").addEventListener("change", toggleManualMode);
+document.getElementById("runManualBtn").addEventListener("click", runManualPipeline);
+document.getElementById("clearUploadsBtn").addEventListener("click", clearUploads);
+document.getElementById("youtubeUrl").addEventListener("input", updateRunManualButtonState);
+document.querySelectorAll("[data-upload-stage]").forEach((input) => {
+  input.addEventListener("change", () => handleUpload(input.dataset.uploadStage, input));
+});
 
 async function runPipeline() {
   console.log("[RUN] Run Pipeline submitted");
@@ -99,6 +111,154 @@ async function runPipeline() {
     console.error("[RUN] Fetch failed:", error);
     showError(error.message);
     setRunning(false);
+  }
+}
+
+function isManualMode() {
+  return Boolean(document.getElementById("manualModeToggle").checked);
+}
+
+function toggleManualMode() {
+  const enabled = isManualMode();
+  const panel = document.getElementById("manualModePanel");
+  const urlInput = document.getElementById("youtubeUrl");
+  const runBtn = document.getElementById("runBtn");
+  const manualBtn = document.getElementById("runManualBtn");
+
+  panel.hidden = !enabled;
+  runBtn.hidden = enabled;
+  manualBtn.hidden = !enabled;
+  if (enabled) {
+    urlInput.placeholder = "Optional YouTube URL (for context)";
+    urlInput.removeAttribute("required");
+  } else {
+    urlInput.placeholder = "Paste a YouTube URL";
+    clearUploads();
+  }
+}
+
+async function handleUpload(stage, fileInput) {
+  const file = fileInput.files[0];
+  const statusEl = uploadStatusEl(stage);
+  if (!file) return;
+
+  if (file.size > 5 * 1024 * 1024) {
+    if (statusEl) statusEl.textContent = "File too large (max 5MB)";
+    fileInput.value = "";
+    delete uploadedStages[String(stage)];
+    updateRunManualButtonState();
+    return;
+  }
+
+  try {
+    const content = await file.text();
+    if (!content.trim()) {
+      if (statusEl) statusEl.textContent = "File is empty";
+      delete uploadedStages[String(stage)];
+      updateRunManualButtonState();
+      return;
+    }
+    uploadedStages[String(stage)] = content;
+    if (statusEl) statusEl.textContent = `${file.name} (${(file.size / 1024).toFixed(1)} KB)`;
+    updateRunManualButtonState();
+  } catch (error) {
+    if (statusEl) statusEl.textContent = `Error reading file: ${error.message}`;
+  }
+}
+
+function uploadStatusEl(stage) {
+  const idMap = {
+    "1": "uploadStatus1",
+    "2": "uploadStatus2",
+    "3-plan": "uploadStatus3Plan",
+    "3-research": "uploadStatus3Research",
+    "4": "uploadStatus4",
+  };
+  return document.getElementById(idMap[String(stage)]);
+}
+
+function updateRunManualButtonState() {
+  const btn = document.getElementById("runManualBtn");
+  const hasUrl = Boolean(document.getElementById("youtubeUrl").value.trim());
+  btn.disabled = Object.keys(uploadedStages).length === 0 && !hasUrl;
+}
+
+function clearUploads() {
+  Object.keys(uploadedStages).forEach((key) => delete uploadedStages[key]);
+  document.querySelectorAll("[data-upload-stage]").forEach((input) => {
+    input.value = "";
+  });
+  document.querySelectorAll(".upload-status").forEach((status) => {
+    status.textContent = "";
+  });
+  updateRunManualButtonState();
+}
+
+async function runManualPipeline() {
+  const hasStage3Plan = Object.prototype.hasOwnProperty.call(uploadedStages, "3-plan");
+  const hasStage3Research = Object.prototype.hasOwnProperty.call(uploadedStages, "3-research");
+  if (hasStage3Plan !== hasStage3Research) {
+    showError("Stage 3 requires both the research plan and research findings. Upload both or neither.");
+    return;
+  }
+
+  if (eventSource) {
+    eventSource.close();
+    eventSource = null;
+  }
+  stopPolling();
+  if (elapsedTimerInterval) {
+    clearInterval(elapsedTimerInterval);
+    elapsedTimerInterval = null;
+  }
+  currentRunId = null;
+  runStartTime = null;
+  stageStartTime = null;
+  currentStage = null;
+  consecutiveRefreshFailures = 0;
+
+  const url = document.getElementById("youtubeUrl").value.trim();
+  const payload = {
+    url: url || null,
+    manual: true,
+    uploaded_stages: { ...uploadedStages },
+  };
+
+  resetUI();
+  const btn = document.getElementById("runManualBtn");
+  btn.disabled = true;
+  btn.textContent = "Starting...";
+
+  try {
+    console.log("[MANUAL RUN] Submitting with stages:", Object.keys(uploadedStages));
+    const response = await fetch("/research/run", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      credentials: "same-origin",
+      body: JSON.stringify(payload),
+    });
+    const responseText = await response.text();
+    let data = {};
+    try {
+      data = responseText ? JSON.parse(responseText) : {};
+    } catch (parseError) {
+      throw new Error(`Server returned non-JSON response ${response.status}: ${responseText.slice(0, 200)}`);
+    }
+    if (!response.ok) {
+      throw new Error(data.error || `Server error ${response.status}: ${responseText.slice(0, 200)}`);
+    }
+    console.log("[MANUAL RUN] Got run_id:", data.run_id, "starting from:", data.resume_from);
+    currentRunId = data.run_id;
+    btn.textContent = "Running...";
+    startElapsedTimer();
+    setActiveStage(stageFromResume(data.resume_from));
+    connectStream(currentRunId);
+    startPolling();
+    await refreshRun();
+  } catch (error) {
+    showError(`Could not start: ${error.message}`);
+    btn.disabled = false;
+    btn.textContent = "Run From Uploaded Stages";
   }
 }
 
@@ -199,6 +359,7 @@ async function handleEvent(event) {
     showError(event.message);
     setLiveStatusError();
     setRunning(false);
+    resetManualButton();
     stopPolling();
     stopElapsedTimer();
     showRetryButton();
@@ -243,6 +404,7 @@ function applyRunState(run) {
     showError(run.error_message || "Pipeline failed.");
     setLiveStatusError();
     setRunning(false);
+    resetManualButton();
     stopPolling();
     stopElapsedTimer();
     showRetryButton();
@@ -417,6 +579,7 @@ function markStageDone(stage) {
 
 function onComplete() {
   setRunning(false);
+  resetManualButton();
   stopPolling();
   setLiveStatusComplete();
   stopElapsedTimer();
@@ -570,6 +733,13 @@ function setRunning(isRunning) {
   const btn = document.getElementById("runBtn");
   btn.disabled = isRunning;
   btn.textContent = isRunning ? "Running..." : "Run Pipeline";
+}
+
+function resetManualButton() {
+  const btn = document.getElementById("runManualBtn");
+  if (!btn) return;
+  btn.textContent = "Run From Uploaded Stages";
+  updateRunManualButtonState();
 }
 
 function showError(message) {

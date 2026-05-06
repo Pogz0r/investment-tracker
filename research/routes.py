@@ -8,7 +8,7 @@ from flask_login import current_user, login_required
 
 from research.db import cleanup_zombie_runs, run_migrations
 from research import config
-from research.jobs import create_run, find_existing_completed_run, get_run, update_run
+from research.jobs import create_manual_run, create_run, find_existing_completed_run, get_run, update_run
 from research.pipeline import start_pipeline, start_pipeline_resume
 
 research_bp = Blueprint("research", __name__, url_prefix="/research")
@@ -39,15 +39,30 @@ def run():
     user_id = getattr(current_user, "id", "anon") if current_user.is_authenticated else "anon"
     current_app.logger.warning("[PIPELINE] POST /research/run received from user %s", user_id)
     body = request.get_json(silent=True) or {}
-    url = (body.get("url") or "").strip()
+    url = (body.get("url") or "").strip() or None
+    manual = bool(body.get("manual"))
+    uploaded_stages = body.get("uploaded_stages") or {}
     current_app.logger.warning("[PIPELINE] URL submitted: %s", url)
-    if not url:
-        return jsonify({"error": "YouTube URL is required"}), 400
+    if not manual and not url:
+        return jsonify({"error": "YouTube URL required (or enable manual mode)"}), 400
+    if manual:
+        validation_error = _validate_manual_payload(uploaded_stages, url)
+        if validation_error:
+            return jsonify({"error": validation_error}), 400
 
-    existing = find_existing_completed_run(url)
+    existing = find_existing_completed_run(url) if (url and not manual) else None
     if existing:
         current_app.logger.warning("[PIPELINE] Duplicate URL matched completed run %s", existing["id"])
         return jsonify({"run_id": existing["id"], "duplicate": True}), 200
+
+    if manual:
+        run_id = create_manual_run(url, uploaded_stages)
+        resume_from = _determine_resume_from_uploads(uploaded_stages)
+        current_app.logger.warning("[PIPELINE] Created manual run %s, resuming from %s", run_id, resume_from)
+        start_pipeline_resume(run_id, resume_from)
+        return jsonify(
+            {"run_id": run_id, "duplicate": False, "manual": True, "resume_from": resume_from}
+        ), 202
 
     run_id = create_run(url)
     current_app.logger.warning("[PIPELINE] Created run %s, dispatching background thread", run_id)
@@ -255,6 +270,36 @@ def _clear_outputs_from(resume_from: str) -> dict:
         },
     }
     return fields_by_stage.get(resume_from, {})
+
+
+def _validate_manual_payload(uploaded_stages: dict, youtube_url: str | None) -> str | None:
+    if not isinstance(uploaded_stages, dict):
+        return "uploaded_stages must be an object"
+    if not uploaded_stages and not youtube_url:
+        return "Manual mode requires at least one uploaded stage or a YouTube URL"
+    if ("3-plan" in uploaded_stages) != ("3-research" in uploaded_stages):
+        return "Stage 3 requires both the research plan AND research findings, or neither"
+    allowed_keys = {"1", "2", "3-plan", "3-research", "4"}
+    for stage_key, content in uploaded_stages.items():
+        if stage_key not in allowed_keys:
+            return f"Unknown uploaded stage {stage_key}"
+        if not isinstance(content, str) or not content.strip():
+            return f"Uploaded stage {stage_key} is empty"
+        if len(content.encode("utf-8")) > 5 * 1024 * 1024:
+            return f"Stage {stage_key} content exceeds 5MB"
+    return None
+
+
+def _determine_resume_from_uploads(uploaded_stages: dict) -> str:
+    if "4" in uploaded_stages:
+        return "stage5"
+    if "3-plan" in uploaded_stages and "3-research" in uploaded_stages:
+        return "stage4"
+    if "2" in uploaded_stages:
+        return "stage3"
+    if "1" in uploaded_stages:
+        return "stage2"
+    return "stage1"
 
 
 def _sse(event: dict) -> str:

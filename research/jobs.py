@@ -1,6 +1,7 @@
 import json
 from datetime import datetime, timezone
 from threading import Lock
+from typing import Optional
 
 from sqlalchemy import desc, insert, select, update
 
@@ -20,6 +21,35 @@ def create_run(youtube_url: str) -> int:
                 progress={"events": []},
             )
         )
+        return int(result.inserted_primary_key[0])
+
+
+def create_manual_run(youtube_url: Optional[str], uploaded_stages: dict) -> int:
+    values = {
+        "youtube_url": youtube_url or "manual-mode-no-url",
+        "status": "queued",
+        "current_stage": "manual_init",
+        "progress": {"events": []},
+    }
+    stage_to_column = {
+        "1": "stage1_output",
+        "2": "stage2_output",
+        "3-plan": "stage3_plan_output",
+        "3-research": "stage3_research",
+        "4": "stage4_output",
+    }
+    for stage_key, column_name in stage_to_column.items():
+        if stage_key not in uploaded_stages:
+            continue
+        content = uploaded_stages[stage_key]
+        if column_name == "stage3_research":
+            values[column_name] = _parse_uploaded_stage3_research(content)
+        else:
+            values[column_name] = content
+
+    values = _sanitize_json_fields(values)
+    with get_engine().begin() as conn:
+        result = conn.execute(insert(pipeline_runs).values(**values))
         return int(result.inserted_primary_key[0])
 
 
@@ -112,3 +142,32 @@ def _jsonb_safe_value(value):
         sanitized = _sanitize_for_json(value)
         json.dumps(sanitized, allow_nan=False)
         return sanitized
+
+
+def _parse_uploaded_stage3_research(content: str):
+    try:
+        parsed = json.loads(content)
+    except (TypeError, ValueError):
+        return {
+            "P_uploaded": {
+                "title": "Uploaded Stage 3 Research",
+                "result": content,
+                "citations": [],
+                "error": None,
+            }
+        }
+    if isinstance(parsed, dict):
+        return {
+            key: value
+            if isinstance(value, dict)
+            else {"title": str(key), "result": str(value), "citations": [], "error": None}
+            for key, value in parsed.items()
+        }
+    return {
+        "P_uploaded": {
+            "title": "Uploaded Stage 3 Research",
+            "result": json.dumps(parsed),
+            "citations": [],
+            "error": None,
+        }
+    }
