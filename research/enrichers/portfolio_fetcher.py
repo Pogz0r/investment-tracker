@@ -2,6 +2,8 @@ import os
 
 import requests
 
+from research.enrichers.yfinance_enricher import _sanitize_for_json
+
 
 def fetch_portfolio_snapshot() -> dict:
     base_url = os.environ.get("SELF_BASE_URL", "").rstrip("/")
@@ -17,5 +19,4 @@ def fetch_portfolio_snapshot() -> dict:
         timeout=20,
     )
     response.raise_for_status()
-    return response.json()
-
+    return _sanitize_for_json(response.json())

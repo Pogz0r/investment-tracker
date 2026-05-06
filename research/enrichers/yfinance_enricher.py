@@ -1,10 +1,17 @@
+import math
 import re
+from typing import Any
 
 
 TICKER_RE = re.compile(r"\b[A-Z]{1,5}(?:\.[A-Z]{1,3})?\b")
 FALSE_POSITIVES = {
     # Generic acronyms
     "AI", "API", "ML", "LLM", "NLP",
+    # Hardware/chip acronyms that appear in tech thesis writing
+    "CPU", "GPU", "TPU", "NPU", "FPGA", "ASIC", "DRAM", "SRAM", "NAND", "HBM",
+    "RAM", "ROM", "SSD", "HDD", "PCIE", "NVME", "SOC", "MCU",
+    # AI/ML hardware and research terms
+    "AGI", "RAG", "RLHF",
     # Financial terms
     "CAD", "USD", "EUR", "GBP", "JPY", "AUD",
     "ETF", "IPO", "GDP", "CPI", "EPS", "PE",
@@ -60,11 +67,33 @@ def fetch_market_data(tickers: list[str]) -> dict:
             }
         except Exception as exc:
             data[ticker] = {"error": str(exc)}
-    return data
+    return _sanitize_for_json(data)
 
 
 def _safe_float(value):
+    if value is None:
+        return None
     try:
-        return float(value or 0)
+        result = float(value)
+        if math.isnan(result) or math.isinf(result):
+            return None
+        return result
     except (TypeError, ValueError):
-        return 0.0
+        return None
+
+
+def _sanitize_for_json(value: Any) -> Any:
+    """
+    Recursively replace NaN and Infinity with None.
+
+    PostgreSQL JSONB rejects NaN/Infinity because they are not valid JSON.
+    """
+    if isinstance(value, float):
+        if math.isnan(value) or math.isinf(value):
+            return None
+        return value
+    if isinstance(value, dict):
+        return {key: _sanitize_for_json(item) for key, item in value.items()}
+    if isinstance(value, list):
+        return [_sanitize_for_json(item) for item in value]
+    return value

@@ -1,3 +1,4 @@
+import json
 from datetime import datetime, timezone
 from threading import Lock
 
@@ -59,6 +60,7 @@ def get_podcast_by_run(run_id: int):
 
 def update_run(run_id: int, **fields):
     fields["updated_at"] = datetime.now(timezone.utc)
+    fields = _sanitize_json_fields(fields)
     with get_engine().begin() as conn:
         conn.execute(
             update(pipeline_runs).where(pipeline_runs.c.id == run_id).values(**fields)
@@ -90,3 +92,23 @@ def mark_inactive(run_id: int):
 def reset_active_jobs_for_tests():
     with _active_jobs_lock:
         _active_jobs.clear()
+
+
+def _sanitize_json_fields(fields: dict) -> dict:
+    json_fields = {"progress", "stage3_research", "live_market_data", "portfolio_snapshot"}
+    sanitized = dict(fields)
+    for field in json_fields & sanitized.keys():
+        sanitized[field] = _jsonb_safe_value(sanitized[field])
+    return sanitized
+
+
+def _jsonb_safe_value(value):
+    try:
+        json.dumps(value, allow_nan=False)
+        return value
+    except ValueError:
+        from research.enrichers.yfinance_enricher import _sanitize_for_json
+
+        sanitized = _sanitize_for_json(value)
+        json.dumps(sanitized, allow_nan=False)
+        return sanitized

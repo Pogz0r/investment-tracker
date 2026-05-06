@@ -1,4 +1,6 @@
 import os
+import json
+import math
 import sys
 import time
 from types import SimpleNamespace
@@ -165,6 +167,66 @@ def test_claude_thinking_uses_adaptive_output_config(monkeypatch):
     assert calls["thinking"] == {"type": "adaptive"}
     assert calls["output_config"] == {"effort": "high"}
     assert "budget_tokens" not in calls["thinking"]
+
+
+def test_yfinance_data_is_postgres_jsonb_safe():
+    """yfinance can return NaN for missing fields. These must become None."""
+    from research.enrichers.yfinance_enricher import _sanitize_for_json
+
+    raw = {
+        "AAPL": {
+            "price": 175.50,
+            "year_high": float("nan"),
+            "year_low": float("inf"),
+            "nested": [{"beta": -float("inf")}],
+            "market_cap": 2.5e12,
+        }
+    }
+
+    cleaned = _sanitize_for_json(raw)
+    serialized = json.dumps(cleaned, allow_nan=False)
+
+    assert "NaN" not in serialized
+    assert "Infinity" not in serialized
+    assert cleaned["AAPL"]["year_high"] is None
+    assert cleaned["AAPL"]["year_low"] is None
+    assert cleaned["AAPL"]["nested"][0]["beta"] is None
+    assert cleaned["AAPL"]["price"] == 175.50
+
+
+def test_update_run_sanitizes_jsonb_fields(research_app):
+    from research.jobs import create_run, get_run, update_run
+
+    run_id = create_run("https://www.youtube.com/watch?v=jsonb_nan")
+
+    update_run(
+        run_id,
+        live_market_data={
+            "NVDA": {"last_price": 900.0, "year_high": math.nan, "year_low": math.inf}
+        },
+    )
+
+    market_data = get_run(run_id)["live_market_data"]
+    assert market_data["NVDA"]["last_price"] == 900.0
+    assert market_data["NVDA"]["year_high"] is None
+    assert market_data["NVDA"]["year_low"] is None
+    json.dumps(market_data, allow_nan=False)
+
+
+def test_hardware_acronyms_are_not_extracted_as_tickers():
+    from research.enrichers.yfinance_enricher import extract_tickers
+
+    tickers = extract_tickers("GPU CPU TPU ASIC HBM demand benefits NVDA and AMD. IGV and ENTG remain valid.")
+
+    assert "GPU" not in tickers
+    assert "CPU" not in tickers
+    assert "TPU" not in tickers
+    assert "ASIC" not in tickers
+    assert "HBM" not in tickers
+    assert "NVDA" in tickers
+    assert "AMD" in tickers
+    assert "IGV" in tickers
+    assert "ENTG" in tickers
 
 
 def test_markdown_report_download(research_app):
