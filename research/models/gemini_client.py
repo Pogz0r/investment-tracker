@@ -2,25 +2,41 @@ import os
 
 from research import config
 
+_client = None
 
-def generate(prompt: str, model: str, system: str = "") -> str:
+
+def _get_client():
+    global _client
+    if _client is None:
+        from google import genai
+
+        _client = genai.Client(api_key=os.environ["GEMINI_API_KEY"])
+    return _client
+
+
+def generate(prompt: str, model: str, system: str = "", thinking_level: str = "low") -> str:
     if not config.is_live_mode():
         return _fake_response(prompt, model)
     try:
-        from google import genai
         from google.genai import types
     except ImportError as exc:
         raise RuntimeError("google-genai is required for live Gemini calls") from exc
 
-    client = genai.Client(api_key=os.environ.get("GEMINI_API_KEY"))
-    config_obj = types.GenerateContentConfig(
-        system_instruction=system if system else None,
-        temperature=0.3,
-        max_output_tokens=8192,
-    )
+    client = _get_client()
+    config_kwargs = {
+        "system_instruction": system if system else None,
+        "max_output_tokens": 8192,
+    }
+    if "gemini-3" in model:
+        config_kwargs["thinking_config"] = types.ThinkingConfig(thinking_level=thinking_level)
+    else:
+        config_kwargs["temperature"] = 0.3
+
     response = client.models.generate_content(
         model=model,
-        config=config_obj,
+        config=types.GenerateContentConfig(
+            **{key: value for key, value in config_kwargs.items() if value is not None}
+        ),
         contents=prompt,
     )
     return response.text or ""

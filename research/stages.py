@@ -5,7 +5,7 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 from research import config
 from research.enrichers.portfolio_fetcher import fetch_portfolio_snapshot
 from research.enrichers.yfinance_enricher import extract_tickers, fetch_market_data
-from research.models import claude_client, gemini_client, perplexity_client
+from research.models import claude_client, gemini_client, openai_client, perplexity_client
 from research.prompts import (
     stage1_signal,
     stage2_thematic,
@@ -52,6 +52,7 @@ def run_stage1(transcript: str) -> str:
         system=stage1_signal.SYSTEM_PROMPT,
         prompt=stage1_signal.USER_TEMPLATE.format(transcript=stage1_transcript),
         model=config.GEMINI_STAGE1_MODEL,
+        thinking_level=config.GEMINI_STAGE1_THINKING_LEVEL,
     )
 
 
@@ -64,13 +65,14 @@ def run_stage2(stage1_output: str) -> str:
 
 
 def run_stage3_plan(stage1_output: str, stage2_output: str) -> str:
-    return claude_client.generate(
+    return openai_client.generate(
         system=stage3_research_plan.SYSTEM_PROMPT,
         prompt=stage3_research_plan.USER_TEMPLATE.format(
             stage1_output=stage1_output,
             stage2_output=stage2_output,
         ),
-        model=config.CLAUDE_STAGE3_MODEL,
+        model=config.OPENAI_STAGE3_PLAN_MODEL,
+        reasoning_effort=config.OPENAI_STAGE3_PLAN_EFFORT,
     )
 
 
@@ -150,6 +152,7 @@ def run_stage4(stage2_output: str, research_results: dict) -> str:
             research_results=research_results,
         ),
         model=config.GEMINI_STAGE4_MODEL,
+        thinking_level=config.GEMINI_STAGE4_THINKING_LEVEL,
     )
 
 

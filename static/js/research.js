@@ -9,11 +9,11 @@ const STAGE_LABELS = {
 
 const STAGE_META = {
   transcript: { label: "Fetching transcript", model: "youtube-transcript-api / Supadata", emoji: "📄" },
-  1: { label: "Extracting investment signals from transcript", model: "Gemini 2.5 Pro", emoji: "🎯" },
+  1: { label: "Extracting investment signals from transcript", model: "Gemini 3.1 Pro", emoji: "🎯" },
   2: { label: "Building thematic deep-dive (TAM, competitors, beneficiaries)", model: "Claude Opus 4.6", emoji: "🧠" },
-  3: { label: "Designing research plan and dispatching parallel queries", model: "Claude Opus 4.6 + Perplexity Sonar Pro", emoji: "🔍" },
-  4: { label: "Consolidating evidence into thesis with confidence scoring", model: "Gemini 2.5 Pro", emoji: "📊" },
-  5: { label: "Running equity screen with personalized portfolio observations", model: "Claude Opus 4.7 (extended thinking)", emoji: "💡" },
+  3: { label: "Designing research plan and dispatching parallel queries", model: "GPT-5.5 + Perplexity Sonar Pro", emoji: "🔍" },
+  4: { label: "Consolidating evidence into thesis with confidence scoring", model: "Gemini 3.1 Pro", emoji: "📊" },
+  5: { label: "Running equity screen with personalized portfolio observations", model: "Claude Opus 4.7 (adaptive thinking)", emoji: "💡" },
   enrichment: { label: "Fetching live market data via yfinance", model: "yfinance", emoji: "💹" },
 };
 
@@ -493,15 +493,59 @@ function renderStageCard(stage, markdown) {
     <header class="stage-report-header">
       <h2>Stage ${stage} - ${STAGE_LABELS[stage]}</h2>
       <div class="stage-report-actions">
-        <button type="button" data-copy-stage="${stage}">Copy</button>
+        <button type="button" class="copy-btn" data-copy-stage="${stage}">Copy</button>
         <a href="/research/report/${currentRunId}/${downloadName}" download>MD</a>
       </div>
     </header>
     <div class="markdown-body">${marked.parse(markdown)}</div>
   `;
   card.querySelector("[data-copy-stage]").addEventListener("click", () => {
-    navigator.clipboard.writeText(stageOutputs[stage] || "");
+    copyStageOutput(stage);
   });
+}
+
+async function copyStageOutput(stage) {
+  const markdown = stageOutputs[stage];
+  if (!markdown) {
+    console.warn("[COPY] No content for stage", stage);
+    return;
+  }
+
+  const btn = document.querySelector(`#stage-card-${stage} .copy-btn`);
+  const originalText = btn ? btn.textContent : "Copy";
+
+  try {
+    if (navigator.clipboard && window.isSecureContext) {
+      await navigator.clipboard.writeText(markdown);
+      setCopyButtonText(btn, "Copied!", originalText);
+      return;
+    }
+
+    const textarea = document.createElement("textarea");
+    textarea.value = markdown;
+    textarea.style.position = "fixed";
+    textarea.style.opacity = "0";
+    textarea.style.top = "0";
+    textarea.style.left = "0";
+    document.body.appendChild(textarea);
+    textarea.focus();
+    textarea.select();
+
+    const success = document.execCommand("copy");
+    document.body.removeChild(textarea);
+    setCopyButtonText(btn, success ? "Copied!" : "Copy failed", originalText);
+  } catch (error) {
+    console.error("[COPY] Failed:", error);
+    setCopyButtonText(btn, "Copy failed", originalText);
+  }
+}
+
+function setCopyButtonText(btn, text, originalText) {
+  if (!btn) return;
+  btn.textContent = text;
+  setTimeout(() => {
+    btn.textContent = originalText;
+  }, 2000);
 }
 
 function showStage3Panel(event) {

@@ -46,19 +46,29 @@ services:
         sync: false
       - key: GEMINI_API_KEY
         sync: false
+      - key: OPENAI_API_KEY
+        sync: false
       - key: PERPLEXITY_API_KEY
         sync: false
       - key: SUPADATA_API_KEY
         sync: false
       - key: GEMINI_STAGE1_MODEL
-        value: gemini-2.5-pro
+        value: gemini-3.1-pro-preview
       - key: GEMINI_STAGE4_MODEL
-        value: gemini-2.5-pro
+        value: gemini-3.1-pro-preview
+      - key: GEMINI_STAGE1_THINKING_LEVEL
+        value: low
+      - key: GEMINI_STAGE4_THINKING_LEVEL
+        value: medium
       - key: CLAUDE_STAGE2_MODEL
         value: claude-opus-4-6
       - key: CLAUDE_STAGE3_MODEL
         value: claude-opus-4-6
       - key: CLAUDE_STAGE5_MODEL
         value: claude-opus-4-7
+      - key: OPENAI_STAGE3_PLAN_MODEL
+        value: gpt-5.5
+      - key: OPENAI_STAGE3_PLAN_EFFORT
+        value: medium
       - key: PERPLEXITY_STAGE3_MODEL
         value: sonar-pro

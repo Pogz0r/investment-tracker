@@ -243,6 +243,94 @@ def test_claude_thinking_uses_adaptive_output_config(monkeypatch):
     assert "budget_tokens" not in calls["thinking"]
 
 
+def test_gemini_client_handles_thinking_level_for_v3_models(monkeypatch):
+    calls = []
+
+    class ThinkingConfig:
+        def __init__(self, thinking_level=None):
+            self.thinking_level = thinking_level
+
+    class GenerateContentConfig:
+        def __init__(self, **kwargs):
+            self.kwargs = kwargs
+
+    class Models:
+        def generate_content(self, **kwargs):
+            calls.append(kwargs)
+            return SimpleNamespace(text="gemini ok")
+
+    class FakeGeminiClient:
+        def __init__(self, api_key=None):
+            self.api_key = api_key
+            self.models = Models()
+
+    types_mod = SimpleNamespace(
+        ThinkingConfig=ThinkingConfig,
+        GenerateContentConfig=GenerateContentConfig,
+    )
+    genai_mod = SimpleNamespace(Client=FakeGeminiClient, types=types_mod)
+    monkeypatch.setenv("RESEARCH_LIVE_MODE", "true")
+    monkeypatch.setenv("GEMINI_API_KEY", "test-gemini-key")
+    monkeypatch.setitem(sys.modules, "google", SimpleNamespace(genai=genai_mod))
+    monkeypatch.setitem(sys.modules, "google.genai", genai_mod)
+    monkeypatch.setitem(sys.modules, "google.genai.types", types_mod)
+
+    from research.models import gemini_client
+
+    gemini_client._client = None
+    output = gemini_client.generate(
+        prompt="extract",
+        model="gemini-3.1-pro-preview",
+        system="system",
+        thinking_level="low",
+    )
+
+    assert output == "gemini ok"
+    config_obj = calls[-1]["config"]
+    assert "temperature" not in config_obj.kwargs
+    assert config_obj.kwargs["thinking_config"].thinking_level == "low"
+
+    gemini_client.generate(prompt="extract", model="gemini-2.5-pro", system="system")
+    config_obj = calls[-1]["config"]
+    assert config_obj.kwargs["temperature"] == 0.3
+    assert "thinking_config" not in config_obj.kwargs
+
+
+def test_openai_client_uses_reasoning_effort_for_gpt5(monkeypatch):
+    calls = {}
+
+    class Completions:
+        def create(self, **kwargs):
+            calls.update(kwargs)
+            return SimpleNamespace(
+                choices=[SimpleNamespace(message=SimpleNamespace(content="openai ok"))]
+            )
+
+    class FakeOpenAI:
+        def __init__(self, api_key=None):
+            self.api_key = api_key
+            self.chat = SimpleNamespace(completions=Completions())
+
+    monkeypatch.setenv("RESEARCH_LIVE_MODE", "true")
+    monkeypatch.setenv("OPENAI_API_KEY", "test-openai-key")
+    monkeypatch.setitem(sys.modules, "openai", SimpleNamespace(OpenAI=FakeOpenAI))
+
+    from research.models import openai_client
+
+    openai_client._client = None
+    output = openai_client.generate(
+        prompt="plan",
+        model="gpt-5.5",
+        system="system",
+        reasoning_effort="medium",
+    )
+
+    assert output == "openai ok"
+    assert calls["reasoning_effort"] == "medium"
+    assert calls["max_completion_tokens"] == 8192
+    assert calls["messages"][0] == {"role": "system", "content": "system"}
+
+
 def test_yfinance_data_is_postgres_jsonb_safe():
     """yfinance can return NaN for missing fields. These must become None."""
     from research.enrichers.yfinance_enricher import _sanitize_for_json

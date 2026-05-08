@@ -28,11 +28,15 @@ def is_live_mode() -> bool:
 def stage1_transcript_max_words() -> int:
     return max(3000, env_int("STAGE1_TRANSCRIPT_MAX_WORDS", 12000))
 
-GEMINI_STAGE1_MODEL = os.environ.get("GEMINI_STAGE1_MODEL", "gemini-2.5-pro")
-GEMINI_STAGE4_MODEL = os.environ.get("GEMINI_STAGE4_MODEL", "gemini-2.5-pro")
+GEMINI_STAGE1_MODEL = os.environ.get("GEMINI_STAGE1_MODEL", "gemini-3.1-pro-preview")
+GEMINI_STAGE4_MODEL = os.environ.get("GEMINI_STAGE4_MODEL", "gemini-3.1-pro-preview")
+GEMINI_STAGE1_THINKING_LEVEL = os.environ.get("GEMINI_STAGE1_THINKING_LEVEL", "low")
+GEMINI_STAGE4_THINKING_LEVEL = os.environ.get("GEMINI_STAGE4_THINKING_LEVEL", "medium")
 CLAUDE_STAGE2_MODEL = os.environ.get("CLAUDE_STAGE2_MODEL", "claude-opus-4-6")
 CLAUDE_STAGE3_MODEL = os.environ.get("CLAUDE_STAGE3_MODEL", "claude-opus-4-6")
 CLAUDE_STAGE5_MODEL = os.environ.get("CLAUDE_STAGE5_MODEL", "claude-opus-4-7")
+OPENAI_STAGE3_PLAN_MODEL = os.environ.get("OPENAI_STAGE3_PLAN_MODEL", "gpt-5.5")
+OPENAI_STAGE3_PLAN_EFFORT = os.environ.get("OPENAI_STAGE3_PLAN_EFFORT", "medium")
 PERPLEXITY_STAGE3_MODEL = os.environ.get("PERPLEXITY_STAGE3_MODEL", "sonar-pro")
 
 SELF_BASE_URL = os.environ.get("SELF_BASE_URL", "").rstrip("/")
