@@ -34,6 +34,7 @@ FALSE_POSITIVES = {
     "BUY", "SELL", "HOLD",
     "HIGH", "LOW", "MID",
     "PHASE", "STAGE",
+    "NEEDS", "LIVE", "DATA",
 }
 
 
@@ -57,17 +58,43 @@ def fetch_market_data(tickers: list[str]) -> dict:
     data = {}
     for ticker in tickers:
         try:
-            info = yf.Ticker(ticker).fast_info
+            ticker_obj = yf.Ticker(ticker)
+            fast_info = ticker_obj.fast_info
+            info = _safe_info(ticker_obj)
+            last_price = _safe_float(
+                getattr(fast_info, "last_price", None)
+                or info.get("currentPrice")
+                or info.get("regularMarketPrice")
+            )
+            year_high = _safe_float(getattr(fast_info, "year_high", None) or info.get("fiftyTwoWeekHigh"))
+            year_low = _safe_float(getattr(fast_info, "year_low", None) or info.get("fiftyTwoWeekLow"))
             data[ticker] = {
-                "last_price": _safe_float(getattr(info, "last_price", None)),
-                "market_cap": _safe_float(getattr(info, "market_cap", None)),
-                "year_high": _safe_float(getattr(info, "year_high", None)),
-                "year_low": _safe_float(getattr(info, "year_low", None)),
-                "previous_close": _safe_float(getattr(info, "previous_close", None)),
+                "last_price": last_price,
+                "price": last_price,
+                "market_cap": _safe_float(getattr(fast_info, "market_cap", None) or info.get("marketCap")),
+                "year_high": year_high,
+                "year_low": year_low,
+                "fifty_two_week_high": year_high,
+                "fifty_two_week_low": year_low,
+                "previous_close": _safe_float(
+                    getattr(fast_info, "previous_close", None) or info.get("previousClose")
+                ),
+                "beta": _safe_float(info.get("beta")),
+                "short_interest_pct": _safe_percent(info.get("shortPercentOfFloat")),
+                "currency": info.get("currency"),
+                "short_name": info.get("shortName") or info.get("longName"),
             }
         except Exception as exc:
             data[ticker] = {"error": str(exc)}
     return _sanitize_for_json(data)
+
+
+def _safe_info(ticker_obj) -> dict:
+    try:
+        info = ticker_obj.info
+    except Exception:
+        return {}
+    return info if isinstance(info, dict) else {}
 
 
 def _safe_float(value):
@@ -80,6 +107,15 @@ def _safe_float(value):
         return result
     except (TypeError, ValueError):
         return None
+
+
+def _safe_percent(value):
+    result = _safe_float(value)
+    if result is None:
+        return None
+    if abs(result) <= 1:
+        return result * 100
+    return result
 
 
 def _sanitize_for_json(value: Any) -> Any:

@@ -181,18 +181,31 @@ def run_stage5(stage4_output: str) -> tuple[str, dict, dict]:
     tickers = extract_tickers(stage4_output)
     market_data = fetch_market_data(tickers)
     portfolio = fetch_portfolio_snapshot()
+    output = _generate_stage5(stage4_output, market_data, portfolio)
+    missing_tickers = [
+        ticker for ticker in extract_tickers(output)
+        if ticker not in market_data
+    ]
+    if "[NEEDS LIVE DATA]" in output and missing_tickers:
+        expanded_market_data = fetch_market_data(tickers + missing_tickers)
+        if set(expanded_market_data) - set(market_data):
+            market_data = expanded_market_data
+            output = _generate_stage5(stage4_output, market_data, portfolio)
+    return enforce_safety_language(output), market_data, portfolio
+
+
+def _generate_stage5(stage4_output: str, market_data: dict, portfolio: dict) -> str:
     prompt = stage5_screen.USER_TEMPLATE.format(
         stage4_output=stage4_output,
         market_data=market_data,
         portfolio_snapshot=portfolio,
     )
-    output = claude_client.generate(
+    return claude_client.generate(
         system=stage5_screen.SYSTEM_PROMPT,
         prompt=prompt,
         model=config.CLAUDE_STAGE5_MODEL,
         thinking=True,
     )
-    return enforce_safety_language(output), market_data, portfolio
 
 
 def enforce_safety_language(markdown: str) -> str:

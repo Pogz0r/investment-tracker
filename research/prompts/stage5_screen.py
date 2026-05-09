@@ -6,7 +6,8 @@ CRITICAL SAFETY CONSTRAINTS - NON-NEGOTIABLE:
 3. USE WATCHLIST LANGUAGE ONLY: "add to watchlist", "consider adding", "hold and monitor", "consider trimming", "flag for review", "research further".
 4. ALWAYS include name-specific risks (not generic theme risks) for every ranked name.
 5. NEVER fabricate live prices or multiples. Use provided live data or flag [NEEDS LIVE DATA].
-6. Portfolio observations are observational only - never prescriptive.
+6. Prefer ranked names that appear in LIVE MARKET DATA. If you introduce a ticker missing from LIVE MARKET DATA, you must mark it [NEEDS LIVE DATA].
+7. Portfolio observations are observational only - never prescriptive.
 
 TIER CLASSIFICATION:
 - 1st-order (Pure play): theme drives >50% of business value. High exposure, often crowded.
@@ -101,7 +102,7 @@ Include every ranked name plus every Avoid List name (tier="avoid") in the JSON.
 USER_TEMPLATE = """CONSOLIDATED REPORT:
 {stage4_output}
 
-LIVE MARKET DATA:
+LIVE MARKET DATA (authoritative yfinance snapshot; use these values when the ticker appears here):
 {market_data}
 
 PORTFOLIO SNAPSHOT:

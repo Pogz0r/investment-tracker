@@ -391,6 +391,77 @@ def test_hardware_acronyms_are_not_extracted_as_tickers():
     assert "ENTG" in tickers
 
 
+def test_fetch_market_data_includes_stage5_live_fields(monkeypatch):
+    from research.enrichers.yfinance_enricher import fetch_market_data
+
+    class FastInfo:
+        last_price = 125.5
+        market_cap = 32000000000
+        year_high = 150.0
+        year_low = 90.0
+        previous_close = 123.0
+
+    class Ticker:
+        fast_info = FastInfo()
+        info = {
+            "beta": 1.25,
+            "shortPercentOfFloat": 0.034,
+            "currency": "USD",
+            "shortName": "Test Power Co",
+        }
+
+    class FakeYFinance:
+        @staticmethod
+        def Ticker(ticker):
+            return Ticker()
+
+    monkeypatch.setitem(sys.modules, "yfinance", FakeYFinance)
+
+    data = fetch_market_data(["CEG"])
+
+    assert data["CEG"]["last_price"] == 125.5
+    assert data["CEG"]["price"] == 125.5
+    assert data["CEG"]["fifty_two_week_high"] == 150.0
+    assert data["CEG"]["fifty_two_week_low"] == 90.0
+    assert data["CEG"]["beta"] == 1.25
+    assert data["CEG"]["short_interest_pct"] == 3.4000000000000004
+    assert data["CEG"]["short_name"] == "Test Power Co"
+
+
+def test_stage5_refetches_tickers_from_needs_live_data_output(monkeypatch):
+    from research import stages
+
+    calls = {"fetches": [], "generations": []}
+
+    def fake_fetch_market_data(tickers):
+        calls["fetches"].append(list(tickers))
+        return {
+            ticker: {"last_price": 100.0, "market_cap": 1000000000, "beta": 1.0}
+            for ticker in tickers
+        }
+
+    def fake_fetch_portfolio_snapshot():
+        return {"stocks": [], "watchlist": []}
+
+    def fake_generate(system, prompt, model, thinking=False):
+        calls["generations"].append(prompt)
+        if len(calls["generations"]) == 1:
+            return "### #1 - Constellation Energy / CEG\n- **Live data:** [NEEDS LIVE DATA]"
+        return "### #1 - Constellation Energy / CEG\n- **Live data:** Price $100 | Market cap $1B"
+
+    monkeypatch.setenv("RESEARCH_LIVE_MODE", "true")
+    monkeypatch.setattr(stages, "fetch_market_data", fake_fetch_market_data)
+    monkeypatch.setattr(stages, "fetch_portfolio_snapshot", fake_fetch_portfolio_snapshot)
+    monkeypatch.setattr(stages.claude_client, "generate", fake_generate)
+
+    output, market_data, _portfolio = stages.run_stage5("# Stage 4 thesis without ticker")
+
+    assert "[NEEDS LIVE DATA]" not in output
+    assert "CEG" in market_data
+    assert calls["fetches"] == [[], ["CEG"]]
+    assert len(calls["generations"]) == 2
+
+
 def test_markdown_report_download(research_app):
     client = research_app.test_client()
     run_id = client.post("/research/run", json={"url": "https://youtu.be/report01"}).get_json()["run_id"]
