@@ -181,6 +181,18 @@ body {
   letter-spacing: 0.01em;
 }
 
+.login-error {
+  border: 1px solid rgba(248, 81, 73, 0.45);
+  background: rgba(248, 81, 73, 0.08);
+  color: #ffb4ad;
+  border-radius: var(--radius-sm);
+  font-family: var(--font-ui);
+  font-size: .76rem;
+  line-height: 1.5;
+  margin: -12px 0 18px;
+  padding: 10px 12px;
+}
+
 .google-btn {
   display: inline-flex;
   align-items: center;

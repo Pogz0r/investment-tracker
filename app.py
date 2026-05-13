@@ -3,10 +3,11 @@ import hmac
 import threading
 from datetime import datetime, timedelta
 from typing import Optional
+from urllib.parse import urlsplit
 
 import yfinance as yf
 import requests
-from flask import Flask, render_template, request, jsonify, redirect, url_for, abort
+from flask import Flask, render_template, request, jsonify, redirect, url_for, abort, session
 from flask_sqlalchemy import SQLAlchemy
 from flask_login import (
     LoginManager, UserMixin, login_user, logout_user,
@@ -22,6 +23,9 @@ app = Flask(__name__)
 # Trust X-Forwarded-Proto from Render's proxy so url_for generates https://
 app.wsgi_app = ProxyFix(app.wsgi_app, x_proto=1, x_host=1)
 app.secret_key = os.environ.get("SECRET_KEY", "dev-only-insecure-key-change-me")
+app.config["SESSION_COOKIE_SAMESITE"] = "Lax"
+if os.environ.get("RENDER"):
+    app.config["SESSION_COOKIE_SECURE"] = True
 
 # ── Database ─────────────────────────────────────────────────────────────────
 _data_dir = os.environ.get("DATA_DIR", os.path.join(os.path.dirname(__file__), "data"))
@@ -259,25 +263,53 @@ def _resolve_ticker(raw: str) -> Optional[str]:
 
 # ── Auth routes ───────────────────────────────────────────────────────────────
 
+def _safe_next_url(target: Optional[str]) -> bool:
+    """Allow local post-login redirects, reject external URLs."""
+    if not target:
+        return False
+    ref = urlsplit(request.host_url)
+    test = urlsplit(target)
+    return (not test.netloc or test.netloc == ref.netloc) and test.scheme in ("", ref.scheme)
+
+
 @app.route("/login")
 def login():
     if current_user.is_authenticated:
         return redirect(url_for("index"))
-    return render_template("login.html")
+    return render_template("login.html", error=request.args.get("error"), next_url=request.args.get("next", ""))
 
 
 @app.route("/auth/google")
 def auth_google():
+    if not os.environ.get("GOOGLE_CLIENT_ID") or not os.environ.get("GOOGLE_CLIENT_SECRET"):
+        app.logger.error("[AUTH] Google OAuth is not configured: missing client id or secret")
+        return redirect(url_for("login", error="google_not_configured"))
+
+    next_url = request.args.get("next") or url_for("index")
+    session["post_login_next"] = next_url if _safe_next_url(next_url) else url_for("index")
     redirect_uri = url_for("auth_callback", _external=True)
-    return google.authorize_redirect(redirect_uri)
+    app.logger.warning(
+        "[AUTH] Starting Google OAuth redirect_uri=%s client_id_present=%s next=%s",
+        redirect_uri,
+        bool(os.environ.get("GOOGLE_CLIENT_ID")),
+        session["post_login_next"],
+    )
+    return google.authorize_redirect(redirect_uri, prompt="select_account")
 
 
 @app.route("/auth/callback")
 def auth_callback():
-    token = google.authorize_access_token()
+    app.logger.warning("[AUTH] Google callback received")
+    try:
+        token = google.authorize_access_token()
+    except Exception as exc:
+        app.logger.exception("[AUTH] Google callback failed: %s", exc)
+        return redirect(url_for("login", error="google_auth_failed"))
+
     userinfo = token.get("userinfo")
     if not userinfo:
-        return redirect(url_for("login"))
+        app.logger.error("[AUTH] Google callback returned no userinfo")
+        return redirect(url_for("login", error="google_userinfo_missing"))
 
     google_id = userinfo["sub"]
     user = User.query.filter_by(google_id=google_id).first()
@@ -295,7 +327,11 @@ def auth_callback():
         user.picture = userinfo.get("picture")
     db.session.commit()
     login_user(user)
-    return redirect(url_for("index"))
+    next_url = session.pop("post_login_next", None)
+    if not _safe_next_url(next_url):
+        next_url = url_for("index")
+    app.logger.warning("[AUTH] Google login succeeded for %s", user.email)
+    return redirect(next_url)
 
 
 @app.route("/logout")
