@@ -58,6 +58,10 @@ function getCurrencyLabel() {
   return currencyMode === "PHP" ? "PHP" : currencyMode === "CAD" ? "CAD" : "USD";
 }
 
+function getCurrencyHeader(prefix = "Amount") {
+  return `${prefix} (${getCurrencyLabel()})`;
+}
+
 function getPortfolioHoldings(data) {
   const allHoldings = [...(data?.stocks || []), ...(data?.crypto || [])];
   if ((data?.total_liquid_usd || 0) > 0) {
@@ -406,43 +410,45 @@ function renderGoal(goal, totalUsd, totalCad, totalPhp, usdToCad, usdToPhp) {
 
 function renderWatchlist(items) {
   const tbody = document.getElementById("watchlistBody");
+  const header = document.getElementById("watchlistPriceHeader");
+  if (header) header.innerHTML = `${getCurrencyHeader("Price")} <span class="sort-indicator"></span>`;
   if (!items.length) {
-    tbody.innerHTML = '<tr class="empty-row"><td colspan="6">No tickers in watchlist yet</td></tr>';
+    tbody.innerHTML = '<tr class="empty-row"><td colspan="4">No tickers in watchlist yet</td></tr>';
     return;
   }
-  const php = currencyMode === "PHP";
-  const usdToPhp = lastData?.usd_to_php || 55.8;
+  const fmtValue = getCurrencyFormatter();
   tbody.innerHTML = items.map((w) => `
     <tr>
       <td><span class="ticker-badge">${w.name}</span></td>
-      <td>${php ? fmtPhp(w.current_price * usdToPhp) : fmtUsd(w.current_price)}</td>
-      <td>${php ? fmtUsd(w.current_price) : fmtCad(w.current_price_cad)}</td>
-      ${php ? `<td>${fmtPhp((w.current_price_php || w.current_price * usdToPhp))}</td>` : ""}
+      <td>${fmtValue(currencyMode === "CAD" ? w.current_price_cad : currencyMode === "PHP" ? (w.current_price_php || w.current_price * (lastData?.usd_to_php || 55.8)) : w.current_price)}</td>
       <td>${pillHtml(w.day_change_pct)}</td>
       <td><button class="btn-remove" onclick="removeWatchlistItem('${w.ticker}')">Remove</button></td>
     </tr>`).join("");
 }
 
 function renderLiquidCash(entries, usdToCad) {
-  const container = document.getElementById("liquidCashBody");
+  const tbody = document.getElementById("liquidCashBody");
+  const header = document.getElementById("liquidCashAmountHeader");
+  if (header) header.textContent = getCurrencyHeader("Amount");
   if (!entries || !entries.length) {
-    container.innerHTML = '<div class="cash-empty">No cash entries yet</div>';
+    tbody.innerHTML = '<tr class="empty-row"><td colspan="3">No cash entries yet</td></tr>';
     return;
   }
-  container.innerHTML = entries.map((e) => `
-    <div class="cash-row">
-      <div class="cash-row-main">
-        <span class="ticker-badge">${e.label}</span>
-        <div class="cash-values">
-          <span><small>CAD</small>${fmtCad(e.amount)}</span>
-          <span><small>USD</small>${fmtUsd(e.amount / usdToCad)}</span>
-        </div>
-      </div>
-      <div class="cash-actions">
+  const fmtValue = getCurrencyFormatter();
+  const usdToPhp = lastData?.usd_to_php || 55.8;
+  tbody.innerHTML = entries.map((e) => {
+    const usdValue = e.amount / usdToCad;
+    const displayValue = currencyMode === "CAD" ? e.amount : currencyMode === "PHP" ? usdValue * usdToPhp : usdValue;
+    return `
+    <tr>
+      <td><span class="ticker-badge">${e.label}</span></td>
+      <td>${fmtValue(displayValue)}</td>
+      <td class="row-actions">
         <button class="btn-action btn-edit" onclick="openEditLiquidCashModal(${e.id})">Edit</button>
         <button class="btn-remove" onclick="removeLiquidCash(${e.id})">Remove</button>
-      </div>
-    </div>`).join("");
+      </td>
+    </tr>`;
+  }).join("");
 }
 
 function getSimulatorBaseTotal(data) {
