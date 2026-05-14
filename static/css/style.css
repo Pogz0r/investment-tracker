@@ -562,7 +562,6 @@ body.compact .user-avatar { width: 26px; height: 26px; }
 .chart-card {}
 .allocation-card { grid-column: 1 / -1; }
 .chart-card--wide { grid-column: 1 / -1; }
-.chart-card--split { grid-column: span 2; }
 
 .allocation-header {
   display: flex;
@@ -874,7 +873,6 @@ body.compact .user-avatar { width: 26px; height: 26px; }
 }
 
 .chart-wrap--pie { height: 260px; }
-.chart-wrap--diverging { height: 260px; }
 
 .chart-wrap canvas {
   max-width: 100%;
@@ -1260,6 +1258,27 @@ body.compact .user-avatar { width: 26px; height: 26px; }
   flex-shrink: 0;
 }
 
+.portfolio-utility-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 14px;
+  align-items: start;
+}
+
+.portfolio-utility-grid .holdings-card {
+  height: 100%;
+  min-width: 0;
+}
+
+.utility-card .holdings-header {
+  min-height: 44px;
+}
+
+.utility-card .table-scroll {
+  max-height: 320px;
+  overflow: auto;
+}
+
 .currency-opt {
   background: none;
   border: none;
@@ -1334,8 +1353,8 @@ body.compact .holdings-table th { padding: 5px 12px; }
 body.compact .empty-row td { padding: 18px; }
 body.compact .chart-wrap { height: 190px; }
 body.compact .chart-wrap--pie { height: 190px; }
-body.compact .chart-wrap--diverging { height: 180px; }
 body.compact .charts-grid { gap: 10px; }
+body.compact .portfolio-utility-grid { gap: 10px; }
 body.compact .allocation-donut-wrap { min-height: 220px; }
 body.compact .allocation-donut-wrap canvas { height: 220px !important; }
 body.compact .allocation-bar-group { padding: 12px; }
@@ -1368,13 +1387,15 @@ body.compact .goal-meta { font-size: .75rem; }
   }
   .charts-grid { grid-template-columns: 1fr; }
   .allocation-card,
-  .chart-card--wide,
-  .chart-card--split { grid-column: auto; }
+  .chart-card--wide { grid-column: auto; }
   .allocation-view--pie,
   .allocation-view--bar {
     grid-template-columns: 1fr;
   }
   .allocation-legend {
+    grid-template-columns: 1fr;
+  }
+  .portfolio-utility-grid {
     grid-template-columns: 1fr;
   }
 }

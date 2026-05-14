@@ -5,8 +5,6 @@
 // ── chart instances ────────────────────────────────────────────────────────
 let pieChart = null;
 let lineChart = null;
-let stockDivergingChart = null;
-let cryptoDivergingChart = null;
 
 // ── auto-refresh state ─────────────────────────────────────────────────────
 let countdownValue = 60;
@@ -30,7 +28,6 @@ const fmtUsd = (n) => "$" + fmt(n);
 const fmtCad = (n) => "CA$" + fmt(n);
 const fmtPhp = (n) => "\u20b1" + fmt(n);
 const fmtPct = (n) => (n >= 0 ? "+" : "") + fmt(n, 2) + "%";
-const fmtPctRounded = (n) => (n >= 0 ? "+" : "") + Math.round(n).toLocaleString("en-US") + "%";
 
 function plClass(n) {
   if (n > 0) return "positive";
@@ -41,12 +38,6 @@ function plClass(n) {
 function pillHtml(pct) {
   const cls = plClass(pct);
   return `<span class="change-pill ${cls}">${fmtPct(pct)}</span>`;
-}
-
-function nicePercentLimit(values) {
-  const maxAbs = Math.max(5, ...values.map((v) => Math.abs(v)));
-  const step = maxAbs > 100 ? 25 : maxAbs > 50 ? 10 : 5;
-  return Math.ceil(maxAbs / step) * step;
 }
 
 function getCurrencyValue(item) {
@@ -184,8 +175,6 @@ function applyCurrencyMode(mode) {
     renderGoal(lastData.savings_goal, lastData.total_usd, lastData.total_cad, lastData.total_php, lastData.usd_to_cad, lastData.usd_to_php);
     renderAllocation(lastData);
     renderLineChart(lastData.portfolio_history || []);
-    renderDivergingChart("stock", lastData.stocks || []);
-    renderDivergingChart("crypto", lastData.crypto || []);
   }
 }
 
@@ -682,95 +671,6 @@ function renderLineChart(history) {
   });
 }
 
-function renderDivergingChart(kind, holdings) {
-  const isStock = kind === "stock";
-  const empty = document.getElementById(isStock ? "stockDivergingEmpty" : "cryptoDivergingEmpty");
-  const canvas = document.getElementById(isStock ? "stockDivergingChart" : "cryptoDivergingChart");
-  const existingChart = isStock ? stockDivergingChart : cryptoDivergingChart;
-  const rows = [...holdings]
-    .filter((h) => Number.isFinite(h.percent_change))
-    .sort((a, b) => Math.abs(b.percent_change) - Math.abs(a.percent_change))
-    .slice(0, 10);
-
-  if (!rows.length) {
-    empty.style.display = "block";
-    canvas.style.display = "none";
-    if (existingChart) existingChart.destroy();
-    if (isStock) stockDivergingChart = null; else cryptoDivergingChart = null;
-    return;
-  }
-
-  empty.style.display = "none";
-  canvas.style.display = "block";
-
-  const labels = rows.map((h) => h.name || h.ticker || h.coin_id);
-  const values = rows.map((h) => h.percent_change);
-  const maxAbs = nicePercentLimit(values);
-  const backgroundColor = values.map((v) => v >= 0 ? "rgba(0, 200, 122, 0.75)" : "rgba(255, 61, 79, 0.78)");
-
-  if (existingChart) {
-    existingChart.data.labels = labels;
-    existingChart.data.datasets[0].data = values;
-    existingChart.data.datasets[0].backgroundColor = backgroundColor;
-    existingChart.options.scales.x.min = -maxAbs;
-    existingChart.options.scales.x.max = maxAbs;
-    existingChart.update();
-    return;
-  }
-
-  const chart = new Chart(canvas, {
-    type: "bar",
-    data: {
-      labels,
-      datasets: [{
-        data: values,
-        backgroundColor,
-        borderWidth: 0,
-        borderRadius: 5,
-        barPercentage: 0.58,
-        categoryPercentage: 0.72,
-      }],
-    },
-    options: {
-      indexAxis: "y",
-      responsive: true,
-      maintainAspectRatio: false,
-      plugins: {
-        legend: { display: false },
-        tooltip: {
-          callbacks: {
-            label: (ctx) => ` ${fmtPctRounded(ctx.parsed.x)}`,
-          },
-        },
-      },
-      scales: {
-        x: {
-          min: -maxAbs,
-          max: maxAbs,
-          border: { display: false },
-          grid: {
-            color: (ctx) => ctx.tick.value === 0 ? "rgba(106, 125, 150, 0.72)" : "#1c2535",
-            lineWidth: (ctx) => ctx.tick.value === 0 ? 2 : 1,
-          },
-          ticks: {
-            color: "#3d4f63",
-            font: { family: "'JetBrains Mono', monospace", size: 11 },
-            maxTicksLimit: 7,
-            callback: (v) => `${Math.round(v)}%`,
-          },
-        },
-        y: {
-          border: { display: false },
-          grid: { display: false },
-          ticks: { color: "#6a7d96", font: { family: "'Syne', sans-serif", size: 11 }, padding: 8 },
-        },
-      },
-    },
-  });
-
-  if (isStock) stockDivergingChart = chart; else cryptoDivergingChart = chart;
-}
-
 // ── main data fetch ────────────────────────────────────────────────────────
 
 async function fetchPortfolio() {
@@ -788,8 +688,6 @@ async function fetchPortfolio() {
 
     renderAllocation(data);
     renderLineChart(data.portfolio_history || []);
-    renderDivergingChart("stock", data.stocks || []);
-    renderDivergingChart("crypto", data.crypto || []);
   } catch (err) {
     console.error("Failed to fetch portfolio:", err);
   }
