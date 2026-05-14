@@ -431,7 +431,7 @@ function renderLiquidCash(entries, usdToCad) {
   const header = document.getElementById("liquidCashAmountHeader");
   if (header) header.textContent = getCurrencyHeader("Amount");
   if (!entries || !entries.length) {
-    tbody.innerHTML = '<tr class="empty-row"><td colspan="3">No cash entries yet</td></tr>';
+    tbody.innerHTML = '<tr class="empty-row"><td colspan="4">No cash entries yet</td></tr>';
     return;
   }
   const fmtValue = getCurrencyFormatter();
@@ -443,10 +443,8 @@ function renderLiquidCash(entries, usdToCad) {
     <tr>
       <td><span class="ticker-badge">${e.label}</span></td>
       <td>${fmtValue(displayValue)}</td>
-      <td class="row-actions">
-        <button class="btn-action btn-edit" onclick="openEditLiquidCashModal(${e.id})">Edit</button>
-        <button class="btn-remove" onclick="removeLiquidCash(${e.id})">Remove</button>
-      </td>
+      <td class="utility-action-cell"><button class="btn-action btn-edit" onclick="openEditLiquidCashModal(${e.id})">Edit</button></td>
+      <td class="utility-action-cell"><button class="btn-remove" onclick="removeLiquidCash(${e.id})">Remove</button></td>
     </tr>`;
   }).join("");
 }
