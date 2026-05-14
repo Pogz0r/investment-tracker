@@ -1279,6 +1279,235 @@ body.compact .user-avatar { width: 26px; height: 26px; }
   overflow: auto;
 }
 
+#liquidCashSection .table-scroll {
+  overflow-x: hidden;
+}
+
+#liquidCashSection .holdings-table {
+  min-width: 0;
+  table-layout: fixed;
+}
+
+#liquidCashSection .holdings-table th,
+#liquidCashSection .holdings-table td {
+  padding-left: 10px;
+  padding-right: 10px;
+}
+
+#liquidCashSection .holdings-table th:nth-child(1),
+#liquidCashSection .holdings-table td:nth-child(1) { width: 28%; }
+#liquidCashSection .holdings-table th:nth-child(2),
+#liquidCashSection .holdings-table td:nth-child(2) { width: 24%; }
+#liquidCashSection .holdings-table th:nth-child(3),
+#liquidCashSection .holdings-table td:nth-child(3) { width: 24%; }
+#liquidCashSection .holdings-table th:nth-child(4),
+#liquidCashSection .holdings-table td:nth-child(4) { width: 24%; }
+
+#liquidCashSection .ticker-badge {
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  vertical-align: middle;
+}
+
+#liquidCashSection .row-actions {
+  gap: 5px;
+  justify-content: flex-end;
+}
+
+#liquidCashSection .btn-edit,
+#liquidCashSection .btn-remove {
+  padding: 4px 8px;
+  font-size: .62rem;
+}
+
+.price-simulator-card {
+  padding: 0;
+  overflow: hidden;
+}
+
+.price-simulator-toggle {
+  width: 100%;
+  min-height: 48px;
+  border: 0;
+  background: rgba(255,255,255,.025);
+  color: var(--text);
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 0 18px;
+  font-family: var(--font-ui);
+  transition: background .16s;
+}
+
+.price-simulator-toggle:hover {
+  background: rgba(212, 137, 10, .06);
+}
+
+.price-simulator-title {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  font-weight: 800;
+  letter-spacing: .01em;
+}
+
+.simulator-icon {
+  display: inline-grid;
+  place-items: center;
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  color: #07090d;
+  background: var(--amber-bright);
+  font-family: var(--font-mono);
+  font-size: .72rem;
+  font-weight: 800;
+}
+
+.price-simulator-caret {
+  color: var(--text-muted);
+  font-family: var(--font-mono);
+  font-size: .8rem;
+  transition: transform .16s, color .16s;
+}
+
+.price-simulator-card.is-expanded .price-simulator-caret {
+  transform: rotate(180deg);
+  color: var(--amber-bright);
+}
+
+.price-simulator-body {
+  border-top: 1px solid rgba(255,255,255,.05);
+  padding: 18px 20px 20px;
+}
+
+.simulator-help {
+  color: var(--text-sub);
+  font-size: .78rem;
+  margin-bottom: 16px;
+}
+
+.simulator-summary {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+  margin-bottom: 18px;
+}
+
+.simulator-summary > div {
+  border: 1px solid rgba(255,255,255,.055);
+  border-radius: 10px;
+  background: rgba(255,255,255,.018);
+  padding: 14px 16px;
+}
+
+.simulator-label {
+  display: block;
+  color: var(--text-muted);
+  font-size: .64rem;
+  font-weight: 800;
+  letter-spacing: .12em;
+  margin-bottom: 6px;
+  text-transform: uppercase;
+}
+
+.simulator-summary strong {
+  color: var(--text);
+  font-family: var(--font-mono);
+  font-size: 1.35rem;
+  font-weight: 700;
+}
+
+.simulator-rows {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.simulator-row {
+  display: grid;
+  grid-template-columns: minmax(130px, 170px) minmax(180px, 1fr) minmax(150px, auto);
+  align-items: center;
+  gap: 16px;
+}
+
+.simulator-holding {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-width: 0;
+}
+
+.simulator-holding .ticker-badge {
+  max-width: 92px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.simulator-holding small {
+  color: var(--text-sub);
+  font-family: var(--font-mono);
+  font-size: .72rem;
+  white-space: nowrap;
+}
+
+.simulator-slider {
+  width: 100%;
+  accent-color: var(--amber-bright);
+}
+
+.simulator-slider::-webkit-slider-runnable-track {
+  height: 5px;
+  border-radius: 99px;
+  background: linear-gradient(90deg, var(--red) 0%, rgba(255,255,255,.22) 34%, rgba(255,255,255,.22) 35%, var(--green) 100%);
+}
+
+.simulator-slider::-webkit-slider-thumb {
+  margin-top: -5px;
+}
+
+.simulator-result {
+  display: flex;
+  align-items: baseline;
+  justify-content: flex-end;
+  gap: 12px;
+  min-width: 0;
+}
+
+.simulator-row-value {
+  color: var(--text-sub);
+  font-family: var(--font-mono);
+  font-size: .78rem;
+  white-space: nowrap;
+}
+
+.simulator-row-pct {
+  min-width: 68px;
+  font-family: var(--font-mono);
+  font-size: .8rem;
+  font-weight: 800;
+  text-align: right;
+}
+
+.simulator-actions {
+  display: flex;
+  justify-content: center;
+  margin-top: 16px;
+}
+
+.btn-simulator-reset {
+  min-width: 88px;
+}
+
+.simulator-empty {
+  color: var(--text-muted);
+  font-size: .82rem;
+  padding: 16px 0;
+}
+
 .currency-opt {
   background: none;
   border: none;
@@ -1358,6 +1587,9 @@ body.compact .portfolio-utility-grid { gap: 10px; }
 body.compact .allocation-donut-wrap { min-height: 220px; }
 body.compact .allocation-donut-wrap canvas { height: 220px !important; }
 body.compact .allocation-bar-group { padding: 12px; }
+body.compact .price-simulator-toggle { min-height: 42px; }
+body.compact .price-simulator-body { padding: 14px 16px 16px; }
+body.compact .simulator-summary strong { font-size: 1.08rem; }
 body.compact .goal-header { margin-bottom: 10px; }
 body.compact .progress-track { height: 4px; }
 body.compact .progress-labels { font-size: .7rem; }
@@ -1398,6 +1630,12 @@ body.compact .goal-meta { font-size: .75rem; }
   .portfolio-utility-grid {
     grid-template-columns: 1fr;
   }
+  .simulator-row {
+    grid-template-columns: minmax(120px, 160px) minmax(160px, 1fr);
+  }
+  .simulator-result {
+    grid-column: 2;
+  }
 }
 
 @media (max-width: 780px) {
@@ -1426,6 +1664,22 @@ body.compact .goal-meta { font-size: .75rem; }
   .allocation-bar-value {
     grid-column: 2;
   }
+  .simulator-summary {
+    grid-template-columns: 1fr;
+  }
+  .simulator-row {
+    grid-template-columns: 1fr;
+    gap: 8px;
+    padding: 12px 0;
+    border-bottom: 1px solid rgba(255,255,255,.055);
+  }
+  .simulator-row:last-child {
+    border-bottom: none;
+  }
+  .simulator-result {
+    grid-column: auto;
+    justify-content: space-between;
+  }
 }
 
 @media (max-width: 500px) {
@@ -1438,6 +1692,17 @@ body.compact .goal-meta { font-size: .75rem; }
   .allocation-donut-wrap { min-height: 230px; }
   .allocation-donut-wrap canvas { height: 230px !important; }
   .allocation-bar-group { padding: 14px; }
+  #liquidCashSection .holdings-table th,
+  #liquidCashSection .holdings-table td {
+    padding-left: 7px;
+    padding-right: 7px;
+    font-size: .72rem;
+  }
+  #liquidCashSection .btn-edit,
+  #liquidCashSection .btn-remove {
+    padding: 3px 6px;
+    letter-spacing: .03em;
+  }
   .login-card { padding: 44px 28px 36px; }
   .login-bg-text { font-size: 40vw; }
 }

@@ -18,6 +18,7 @@ let lastData = null;
 let currencyMode = localStorage.getItem("currencyMode") || "USD";
 let historyRange = localStorage.getItem("historyRange") || "7d";
 let allocationView = localStorage.getItem("allocationView") || "pie";
+let simulatorAdjustments = {};
 
 // ── helpers ────────────────────────────────────────────────────────────────
 
@@ -89,6 +90,10 @@ function getAllocationRows(holdings) {
     })
     .filter((row) => row.value > 0)
     .sort((a, b) => b.value - a.value);
+}
+
+function getHoldingKey(item) {
+  return `${item.coin_id ? "crypto" : "stock"}:${item.ticker || item.coin_id || item.name}`;
 }
 
 // ── modal helpers ──────────────────────────────────────────────────────────
@@ -175,6 +180,7 @@ function applyCurrencyMode(mode) {
     renderGoal(lastData.savings_goal, lastData.total_usd, lastData.total_cad, lastData.total_php, lastData.usd_to_cad, lastData.usd_to_php);
     renderAllocation(lastData);
     renderLineChart(lastData.portfolio_history || []);
+    renderPriceSimulator(lastData);
   }
 }
 
@@ -222,6 +228,32 @@ document.getElementById("allocationToggle")?.addEventListener("click", (e) => {
 });
 
 applyAllocationView(allocationView);
+
+const priceSimulatorToggle = document.getElementById("priceSimulatorToggle");
+if (priceSimulatorToggle) {
+  priceSimulatorToggle.addEventListener("click", () => {
+    const card = document.getElementById("priceSimulator");
+    const body = document.getElementById("priceSimulatorBody");
+    const expanded = priceSimulatorToggle.getAttribute("aria-expanded") === "true";
+    priceSimulatorToggle.setAttribute("aria-expanded", String(!expanded));
+    card.classList.toggle("is-collapsed", expanded);
+    card.classList.toggle("is-expanded", !expanded);
+    body.hidden = expanded;
+    if (!expanded && lastData) renderPriceSimulator(lastData);
+  });
+}
+
+document.getElementById("simulatorRows")?.addEventListener("input", (e) => {
+  const input = e.target.closest(".simulator-slider");
+  if (!input) return;
+  simulatorAdjustments[input.dataset.key] = Number(input.value);
+  updateSimulatorDisplay();
+});
+
+document.getElementById("resetSimulator")?.addEventListener("click", () => {
+  simulatorAdjustments = {};
+  if (lastData) renderPriceSimulator(lastData);
+});
 
 // ── compact mode ───────────────────────────────────────────────────────────
 
@@ -407,6 +439,90 @@ function renderLiquidCash(entries, usdToCad) {
         <button class="btn-remove" onclick="removeLiquidCash(${e.id})">Remove</button>
       </td>
     </tr>`).join("");
+}
+
+function getSimulatorBaseTotal(data) {
+  if (currencyMode === "PHP") return data.total_php || data.total_usd * (data.usd_to_php || 55.8);
+  if (currencyMode === "CAD") return data.total_cad || data.total_usd * (data.usd_to_cad || 1);
+  return data.total_usd || 0;
+}
+
+function getSimulatorHoldings(data) {
+  return [...(data?.stocks || []), ...(data?.crypto || [])]
+    .map((item) => ({
+      key: getHoldingKey(item),
+      label: getHoldingLabel(item),
+      value: getCurrencyValue(item),
+    }))
+    .filter((item) => item.value > 0)
+    .sort((a, b) => b.value - a.value)
+    .slice(0, 10);
+}
+
+function renderPriceSimulator(data) {
+  const rowsEl = document.getElementById("simulatorRows");
+  if (!rowsEl) return;
+
+  const holdings = getSimulatorHoldings(data);
+  if (!holdings.length) {
+    rowsEl.innerHTML = '<div class="simulator-empty">Add holdings to enable the simulator.</div>';
+    updateSimulatorDisplay();
+    return;
+  }
+
+  const fmtValue = getCurrencyFormatter();
+  rowsEl.innerHTML = holdings.map((holding) => {
+    const pct = simulatorAdjustments[holding.key] ?? 0;
+    return `
+      <div class="simulator-row" data-key="${holding.key}" data-base-value="${holding.value}">
+        <div class="simulator-holding">
+          <span class="ticker-badge">${holding.label}</span>
+          <small>${fmtValue(holding.value)}</small>
+        </div>
+        <input class="simulator-slider" type="range" min="-100" max="200" step="1" value="${pct}" data-key="${holding.key}" aria-label="${holding.label} price change">
+        <div class="simulator-result">
+          <span class="simulator-row-value">${fmtValue(holding.value * (1 + pct / 100))}</span>
+          <strong class="simulator-row-pct ${plClass(pct)}">${fmtPct(pct)}</strong>
+        </div>
+      </div>
+    `;
+  }).join("");
+
+  updateSimulatorDisplay();
+}
+
+function updateSimulatorDisplay() {
+  if (!lastData) return;
+  const rows = [...document.querySelectorAll(".simulator-row")];
+  const fmtValue = getCurrencyFormatter();
+  const baseTotal = getSimulatorBaseTotal(lastData);
+  let delta = 0;
+
+  rows.forEach((row) => {
+    const key = row.dataset.key;
+    const baseValue = Number(row.dataset.baseValue || 0);
+    const pct = simulatorAdjustments[key] ?? 0;
+    const simulatedValue = baseValue * (1 + pct / 100);
+    delta += simulatedValue - baseValue;
+
+    const valueEl = row.querySelector(".simulator-row-value");
+    const pctEl = row.querySelector(".simulator-row-pct");
+    if (valueEl) valueEl.textContent = fmtValue(simulatedValue);
+    if (pctEl) {
+      pctEl.textContent = fmtPct(pct);
+      pctEl.className = `simulator-row-pct ${plClass(pct)}`;
+    }
+  });
+
+  const simulatedTotal = baseTotal + delta;
+  const deltaPct = baseTotal > 0 ? (delta / baseTotal) * 100 : 0;
+  const totalEl = document.getElementById("simulatedPortfolioValue");
+  const deltaEl = document.getElementById("simulatedPortfolioDelta");
+  if (totalEl) totalEl.textContent = fmtValue(simulatedTotal);
+  if (deltaEl) {
+    deltaEl.textContent = `${delta >= 0 ? "+" : ""}${fmtValue(delta)} (${fmtPct(deltaPct)})`;
+    deltaEl.className = plClass(delta);
+  }
 }
 
 function openEditLiquidCashModal(id) {
@@ -688,6 +804,7 @@ async function fetchPortfolio() {
 
     renderAllocation(data);
     renderLineChart(data.portfolio_history || []);
+    renderPriceSimulator(data);
   } catch (err) {
     console.error("Failed to fetch portfolio:", err);
   }

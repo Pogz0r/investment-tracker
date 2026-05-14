@@ -198,6 +198,34 @@
       </section>
     </section>
 
+    <!-- ========== PRICE SIMULATOR ========== -->
+    <section class="card price-simulator-card is-collapsed" id="priceSimulator">
+      <button class="price-simulator-toggle" id="priceSimulatorToggle" type="button" aria-expanded="false" aria-controls="priceSimulatorBody">
+        <span class="price-simulator-title">
+          <span class="simulator-icon" aria-hidden="true">$</span>
+          <span>Price Simulator</span>
+        </span>
+        <span class="price-simulator-caret" aria-hidden="true">v</span>
+      </button>
+      <div class="price-simulator-body" id="priceSimulatorBody" hidden>
+        <p class="simulator-help">Adjust the top 10 holdings to see how percentage moves would affect total portfolio value. Cash remains unchanged.</p>
+        <div class="simulator-summary">
+          <div>
+            <span class="simulator-label">Simulated Portfolio</span>
+            <strong id="simulatedPortfolioValue">$0.00</strong>
+          </div>
+          <div>
+            <span class="simulator-label">Estimated Change</span>
+            <strong id="simulatedPortfolioDelta">$0.00 (0.00%)</strong>
+          </div>
+        </div>
+        <div class="simulator-rows" id="simulatorRows"></div>
+        <div class="simulator-actions">
+          <button class="btn btn-outline btn-simulator-reset" id="resetSimulator" type="button">Reset</button>
+        </div>
+      </div>
+    </section>
+
     <!-- ========== HOLDINGS TABLES ========== -->
     <section class="card holdings-card">
       <div class="holdings-header">
