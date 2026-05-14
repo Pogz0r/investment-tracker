@@ -19,6 +19,7 @@ let lastData = null;
 // ── currency display mode ──────────────────────────────────────────────────
 let currencyMode = localStorage.getItem("currencyMode") || "USD";
 let historyRange = localStorage.getItem("historyRange") || "7d";
+let allocationView = localStorage.getItem("allocationView") || "pie";
 
 // ── helpers ────────────────────────────────────────────────────────────────
 
@@ -77,6 +78,26 @@ function getPortfolioHoldings(data) {
     });
   }
   return allHoldings;
+}
+
+function getHoldingLabel(item) {
+  return item.name || item.ticker || item.coin_id || "Holding";
+}
+
+function getAllocationRows(holdings) {
+  const total = holdings.reduce((sum, item) => sum + getCurrencyValue(item), 0);
+  return [...holdings]
+    .map((item, index) => {
+      const value = getCurrencyValue(item);
+      return {
+        label: getHoldingLabel(item),
+        value,
+        pct: total > 0 ? (value / total) * 100 : 0,
+        color: PALETTE[index % PALETTE.length],
+      };
+    })
+    .filter((row) => row.value > 0)
+    .sort((a, b) => b.value - a.value);
 }
 
 // ── modal helpers ──────────────────────────────────────────────────────────
@@ -161,7 +182,7 @@ function applyCurrencyMode(mode) {
   if (lastData) {
     renderSummary(lastData);
     renderGoal(lastData.savings_goal, lastData.total_usd, lastData.total_cad, lastData.total_php, lastData.usd_to_cad, lastData.usd_to_php);
-    renderPieChart(getPortfolioHoldings(lastData));
+    renderAllocation(lastData);
     renderLineChart(lastData.portfolio_history || []);
     renderDivergingChart("stock", lastData.stocks || []);
     renderDivergingChart("crypto", lastData.crypto || []);
@@ -191,6 +212,27 @@ document.getElementById("historyRangeToggle").addEventListener("click", (e) => {
 });
 
 applyHistoryRange(historyRange);
+
+function applyAllocationView(view) {
+  allocationView = view === "bar" ? "bar" : "pie";
+  localStorage.setItem("allocationView", allocationView);
+  document.querySelectorAll(".allocation-opt").forEach((btn) => {
+    btn.classList.toggle("active", btn.dataset.view === allocationView);
+  });
+  const pieView = document.getElementById("allocationPieView");
+  const barView = document.getElementById("allocationBarView");
+  if (pieView) pieView.hidden = allocationView !== "pie";
+  if (barView) barView.hidden = allocationView !== "bar";
+  if (lastData) renderAllocation(lastData);
+  if (allocationView === "pie" && pieChart) requestAnimationFrame(() => pieChart.resize());
+}
+
+document.getElementById("allocationToggle")?.addEventListener("click", (e) => {
+  const btn = e.target.closest(".allocation-opt");
+  if (btn) applyAllocationView(btn.dataset.view);
+});
+
+applyAllocationView(allocationView);
 
 // ── compact mode ───────────────────────────────────────────────────────────
 
@@ -404,6 +446,77 @@ const PALETTE = [
   "#b36800", "#00a865", "#3b82f6", "#e11d48", "#8b5cf6",
 ];
 
+function renderAllocation(data) {
+  renderPieChart(getPortfolioHoldings(data));
+  renderAllocationBars(data.stocks || [], data.crypto || []);
+}
+
+function renderAllocationLegend(rows, total) {
+  const legend = document.getElementById("allocationLegend");
+  if (!legend) return;
+  const fmtValue = getCurrencyFormatter();
+  if (!rows.length) {
+    legend.innerHTML = '<div class="allocation-empty-note">No holdings yet</div>';
+    return;
+  }
+
+  legend.innerHTML = rows.slice(0, 10).map((row) => `
+    <div class="allocation-legend-row">
+      <span class="allocation-dot" style="background:${row.color}"></span>
+      <span class="allocation-name">${row.label}</span>
+      <span class="allocation-pct">${fmt(row.pct, row.pct >= 10 ? 0 : 1)}%</span>
+      <span class="allocation-value">${fmtValue(row.value)}</span>
+    </div>
+  `).join("");
+
+  const remaining = rows.length - 10;
+  if (remaining > 0) {
+    const remainingValue = rows.slice(10).reduce((sum, row) => sum + row.value, 0);
+    legend.insertAdjacentHTML("beforeend", `
+      <div class="allocation-legend-row allocation-legend-row--muted">
+        <span class="allocation-dot"></span>
+        <span class="allocation-name">${remaining} more</span>
+        <span class="allocation-pct">${fmt(total > 0 ? (remainingValue / total) * 100 : 0, 1)}%</span>
+        <span class="allocation-value">${fmtValue(remainingValue)}</span>
+      </div>
+    `);
+  }
+}
+
+function renderAllocationBars(stocks, crypto) {
+  renderAllocationBarGroup("stock", stocks);
+  renderAllocationBarGroup("crypto", crypto);
+}
+
+function renderAllocationBarGroup(kind, holdings) {
+  const container = document.getElementById(kind === "stock" ? "stockAllocationBars" : "cryptoAllocationBars");
+  const totalEl = document.getElementById(kind === "stock" ? "stockAllocationTotal" : "cryptoAllocationTotal");
+  if (!container || !totalEl) return;
+
+  const rows = getAllocationRows(holdings);
+  const total = rows.reduce((sum, row) => sum + row.value, 0);
+  const fmtValue = getCurrencyFormatter();
+  totalEl.textContent = fmtValue(total);
+
+  if (!rows.length) {
+    container.innerHTML = `<div class="allocation-empty-note">No ${kind === "stock" ? "stock" : "crypto"} holdings yet</div>`;
+    return;
+  }
+
+  container.innerHTML = rows.slice(0, 8).map((row) => `
+    <div class="allocation-bar-row">
+      <div class="allocation-bar-label">
+        <span>${row.label}</span>
+        <strong>${fmt(row.pct, row.pct >= 10 ? 0 : 1)}%</strong>
+      </div>
+      <div class="allocation-bar-track" title="${row.label}: ${fmtValue(row.value)}">
+        <span class="allocation-bar-fill" style="width:${Math.max(row.pct, 1.5)}%; background:${row.color}"></span>
+      </div>
+      <div class="allocation-bar-value">${fmtValue(row.value)}</div>
+    </div>
+  `).join("");
+}
+
 function renderPieChart(allHoldings) {
   const pieEmpty = document.getElementById("pieEmpty");
   const canvas = document.getElementById("pieChart");
@@ -411,6 +524,8 @@ function renderPieChart(allHoldings) {
   if (!allHoldings.length) {
     pieEmpty.style.display = "block";
     canvas.style.display = "none";
+    document.getElementById("allocationTotal").textContent = getCurrencyFormatter()(0);
+    renderAllocationLegend([], 0);
     if (pieChart) { pieChart.destroy(); pieChart = null; }
     return;
   }
@@ -422,6 +537,11 @@ function renderPieChart(allHoldings) {
   const colors = PALETTE.slice(0, labels.length);
   const fmtValue = getCurrencyFormatter();
   const currencyLabel = getCurrencyLabel();
+  const total = values.reduce((a, b) => a + b, 0);
+  const rows = getAllocationRows(allHoldings);
+  const totalEl = document.getElementById("allocationTotal");
+  if (totalEl) totalEl.textContent = fmtValue(total);
+  renderAllocationLegend(rows, total);
 
   if (pieChart) {
     pieChart.data.labels = labels;
@@ -429,7 +549,6 @@ function renderPieChart(allHoldings) {
     pieChart.data.datasets[0].backgroundColor = colors;
     pieChart.data.datasets[0].label = `Allocation (${currencyLabel})`;
     pieChart.options.plugins.tooltip.callbacks.label = (ctx) => {
-      const total = values.reduce((a, b) => a + b, 0);
       const pct = total > 0 ? (ctx.parsed / total) * 100 : 0;
       return ` ${ctx.label}: ${fmtValue(ctx.parsed)} (${fmt(pct, 1)}%)`;
     };
@@ -444,16 +563,13 @@ function renderPieChart(allHoldings) {
     },
     options: {
       responsive: true,
-      maintainAspectRatio: true,
+      maintainAspectRatio: false,
+      cutout: "62%",
       plugins: {
-        legend: {
-          position: "bottom",
-          labels: { color: "#6a7d96", font: { size: 11, family: "'Syne', sans-serif" }, padding: 12, boxWidth: 10 },
-        },
+        legend: { display: false },
         tooltip: {
           callbacks: {
             label: (ctx) => {
-              const total = values.reduce((a, b) => a + b, 0);
               const pct = total > 0 ? (ctx.parsed / total) * 100 : 0;
               return ` ${ctx.label}: ${fmtValue(ctx.parsed)} (${fmt(pct, 1)}%)`;
             },
@@ -670,7 +786,7 @@ async function fetchPortfolio() {
     renderLiquidCash(data.liquid_cash || [], data.usd_to_cad);
     renderGoal(data.savings_goal, data.total_usd, data.total_cad, data.total_php, data.usd_to_cad, data.usd_to_php);
 
-    renderPieChart(getPortfolioHoldings(data));
+    renderAllocation(data);
     renderLineChart(data.portfolio_history || []);
     renderDivergingChart("stock", data.stocks || []);
     renderDivergingChart("crypto", data.crypto || []);

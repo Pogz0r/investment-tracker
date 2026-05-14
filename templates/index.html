@@ -142,11 +142,43 @@
 
     <!-- ========== CHARTS ========== -->
     <section class="charts-grid">
-      <div class="card chart-card">
-        <h2 class="section-title">Portfolio Allocation</h2>
-        <div class="chart-wrap chart-wrap--pie">
-          <canvas id="pieChart"></canvas>
-          <p class="chart-empty" id="pieEmpty">Add holdings to see allocation</p>
+      <div class="card chart-card allocation-card">
+        <div class="allocation-header">
+          <div>
+            <h2 class="section-title">Portfolio Allocation</h2>
+            <p class="allocation-subtitle">Clean view of holdings by current market value</p>
+          </div>
+          <div class="allocation-toggle" id="allocationToggle" aria-label="Portfolio allocation chart type">
+            <button class="allocation-opt active" data-view="pie" type="button">Pie</button>
+            <button class="allocation-opt" data-view="bar" type="button">Bar</button>
+          </div>
+        </div>
+        <div class="allocation-view allocation-view--pie" id="allocationPieView">
+          <div class="allocation-donut-wrap">
+            <canvas id="pieChart"></canvas>
+            <div class="allocation-center">
+              <span>Allocation</span>
+              <strong id="allocationTotal">$0</strong>
+            </div>
+            <p class="chart-empty" id="pieEmpty">Add holdings to see allocation</p>
+          </div>
+          <div class="allocation-legend" id="allocationLegend"></div>
+        </div>
+        <div class="allocation-view allocation-view--bar" id="allocationBarView" hidden>
+          <div class="allocation-bar-group">
+            <div class="allocation-bar-heading">
+              <span>Stocks</span>
+              <strong id="stockAllocationTotal">$0</strong>
+            </div>
+            <div class="allocation-bars" id="stockAllocationBars"></div>
+          </div>
+          <div class="allocation-bar-group">
+            <div class="allocation-bar-heading">
+              <span>Crypto</span>
+              <strong id="cryptoAllocationTotal">$0</strong>
+            </div>
+            <div class="allocation-bars" id="cryptoAllocationBars"></div>
+          </div>
         </div>
       </div>
       <div class="card chart-card chart-card--wide">
