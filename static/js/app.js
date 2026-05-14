@@ -424,21 +424,25 @@ function renderWatchlist(items) {
 }
 
 function renderLiquidCash(entries, usdToCad) {
-  const tbody = document.getElementById("liquidCashBody");
+  const container = document.getElementById("liquidCashBody");
   if (!entries || !entries.length) {
-    tbody.innerHTML = '<tr class="empty-row"><td colspan="4">No cash entries yet</td></tr>';
+    container.innerHTML = '<div class="cash-empty">No cash entries yet</div>';
     return;
   }
-  tbody.innerHTML = entries.map((e) => `
-    <tr>
-      <td><span class="ticker-badge">${e.label}</span></td>
-      <td>${fmtCad(e.amount)}</td>
-      <td>${fmtUsd(e.amount / usdToCad)}</td>
-      <td class="row-actions">
+  container.innerHTML = entries.map((e) => `
+    <div class="cash-row">
+      <div class="cash-row-main">
+        <span class="ticker-badge">${e.label}</span>
+        <div class="cash-values">
+          <span><small>CAD</small>${fmtCad(e.amount)}</span>
+          <span><small>USD</small>${fmtUsd(e.amount / usdToCad)}</span>
+        </div>
+      </div>
+      <div class="cash-actions">
         <button class="btn-action btn-edit" onclick="openEditLiquidCashModal(${e.id})">Edit</button>
         <button class="btn-remove" onclick="removeLiquidCash(${e.id})">Remove</button>
-      </td>
-    </tr>`).join("");
+      </div>
+    </div>`).join("");
 }
 
 function getSimulatorBaseTotal(data) {

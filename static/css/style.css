@@ -1279,46 +1279,82 @@ body.compact .user-avatar { width: 26px; height: 26px; }
   overflow: auto;
 }
 
-#liquidCashSection .table-scroll {
-  overflow-x: hidden;
+.cash-list {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 0 18px 18px;
 }
 
-#liquidCashSection .holdings-table {
+.cash-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 14px;
+  align-items: center;
+  border: 1px solid rgba(255,255,255,.055);
+  border-radius: 10px;
+  background: rgba(255,255,255,.018);
+  padding: 12px 14px;
+}
+
+.cash-row-main {
+  display: flex;
+  align-items: center;
+  gap: 14px;
   min-width: 0;
-  table-layout: fixed;
 }
 
-#liquidCashSection .holdings-table th,
-#liquidCashSection .holdings-table td {
-  padding-left: 10px;
-  padding-right: 10px;
-}
-
-#liquidCashSection .holdings-table th:nth-child(1),
-#liquidCashSection .holdings-table td:nth-child(1) { width: 28%; }
-#liquidCashSection .holdings-table th:nth-child(2),
-#liquidCashSection .holdings-table td:nth-child(2) { width: 24%; }
-#liquidCashSection .holdings-table th:nth-child(3),
-#liquidCashSection .holdings-table td:nth-child(3) { width: 24%; }
-#liquidCashSection .holdings-table th:nth-child(4),
-#liquidCashSection .holdings-table td:nth-child(4) { width: 24%; }
-
-#liquidCashSection .ticker-badge {
-  max-width: 100%;
+.cash-row-main .ticker-badge {
+  max-width: 120px;
   overflow: hidden;
   text-overflow: ellipsis;
-  vertical-align: middle;
+  flex-shrink: 0;
 }
 
-#liquidCashSection .row-actions {
-  gap: 5px;
+.cash-values {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(92px, 1fr));
+  gap: 10px;
+  min-width: 0;
+  width: 100%;
+}
+
+.cash-values span {
+  color: var(--text);
+  font-family: var(--font-mono);
+  font-size: .82rem;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+.cash-values small {
+  display: block;
+  color: var(--text-muted);
+  font-family: var(--font-ui);
+  font-size: .58rem;
+  font-weight: 800;
+  letter-spacing: .12em;
+  margin-bottom: 2px;
+}
+
+.cash-actions {
+  display: flex;
+  gap: 7px;
   justify-content: flex-end;
+  flex-shrink: 0;
 }
 
-#liquidCashSection .btn-edit,
-#liquidCashSection .btn-remove {
-  padding: 4px 8px;
-  font-size: .62rem;
+.cash-actions .btn-edit,
+.cash-actions .btn-remove {
+  padding: 5px 9px;
+  font-size: .64rem;
+}
+
+.cash-empty {
+  color: var(--text-muted);
+  font-size: .82rem;
+  padding: 18px 0;
+  text-align: center;
 }
 
 .price-simulator-card {
@@ -1692,17 +1728,11 @@ body.compact .goal-meta { font-size: .75rem; }
   .allocation-donut-wrap { min-height: 230px; }
   .allocation-donut-wrap canvas { height: 230px !important; }
   .allocation-bar-group { padding: 14px; }
-  #liquidCashSection .holdings-table th,
-  #liquidCashSection .holdings-table td {
-    padding-left: 7px;
-    padding-right: 7px;
-    font-size: .72rem;
-  }
-  #liquidCashSection .btn-edit,
-  #liquidCashSection .btn-remove {
-    padding: 3px 6px;
-    letter-spacing: .03em;
-  }
+  .cash-list { padding: 0 12px 14px; }
+  .cash-row { grid-template-columns: 1fr; gap: 10px; }
+  .cash-row-main { align-items: flex-start; flex-direction: column; gap: 9px; }
+  .cash-values { grid-template-columns: 1fr 1fr; }
+  .cash-actions { justify-content: flex-start; }
   .login-card { padding: 44px 28px 36px; }
   .login-bg-text { font-size: 40vw; }
 }
