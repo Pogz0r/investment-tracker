@@ -31,33 +31,36 @@ log = logging.getLogger(__name__)
 _STAGE_ORDER = ["transcript", "stage1", "stage2", "stage3", "stage4", "stage5"]
 
 
-def start_pipeline(run_id: int, youtube_url: str):
-    _start_pipeline(run_id, youtube_url, "transcript")
+def start_pipeline(run_id: int, youtube_url: str) -> bool:
+    return _start_pipeline(run_id, youtube_url, "transcript")
 
 
-def start_pipeline_resume(run_id: int, resume_from: str):
+def start_pipeline_resume(run_id: int, resume_from: str, force: bool = False) -> bool:
     run = get_run(run_id)
     if not run:
         raise ValueError(f"Run {run_id} not found")
     if resume_from == "complete":
         log.warning("[PIPELINE %s] Retry skipped because run is already complete", run_id)
-        return
-    _start_pipeline(run_id, run["youtube_url"], resume_from)
+        return True
+    return _start_pipeline(run_id, run["youtube_url"], resume_from, force=force)
 
 
-def _start_pipeline(run_id: int, youtube_url: str, resume_from: str):
+def _start_pipeline(run_id: int, youtube_url: str, resume_from: str, force: bool = False) -> bool:
     if resume_from not in _STAGE_ORDER:
         raise ValueError(f"Unknown resume stage: {resume_from}")
+    if force:
+        mark_inactive(run_id)
     if not mark_active(run_id):
         log.warning("[PIPELINE %s] Start skipped because run is already active", run_id)
-        return
+        return False
     if os.environ.get("RESEARCH_SYNC_MODE", "").strip().lower() in {"1", "true", "yes"}:
         log.warning("[PIPELINE %s] Running synchronously for test mode (resume_from=%s)", run_id, resume_from)
         _run_pipeline(run_id, youtube_url, resume_from)
-        return
+        return True
     log.warning("[PIPELINE %s] Starting daemon background thread (resume_from=%s)", run_id, resume_from)
     thread = Thread(target=_run_pipeline, args=(run_id, youtube_url, resume_from), daemon=True)
     thread.start()
+    return True
 
 
 def _run_pipeline(run_id: int, youtube_url: str, resume_from: str = "transcript"):
@@ -130,13 +133,19 @@ def _run_pipeline(run_id: int, youtube_url: str, resume_from: str = "transcript"
             _event(run_id, {"type": "stage_skipped", "stage": 2})
 
         if _should_run(resume_from, "stage3"):
-            log.warning("[PIPELINE %s] Starting Stage 3 plan", run_id)
+            log.warning("[PIPELINE %s] Starting Stage 3", run_id)
             _event(run_id, {"type": "stage_start", "stage": 3, "label": "Parallel Research"})
             update_run(run_id, current_stage="stage3")
-            stage3_plan = run_stage3_plan(stage1, stage2)
+            stage3_plan = run.get("stage3_plan_output")
+            if stage3_plan:
+                log.warning("[PIPELINE %s] Stage 3 plan reused from DB", run_id)
+                _event(run_id, {"type": "stage_artifact_reused", "stage": "3-plan"})
+            else:
+                log.warning("[PIPELINE %s] Starting Stage 3 plan", run_id)
+                stage3_plan = run_stage3_plan(stage1, stage2)
+                update_run(run_id, stage3_plan_output=stage3_plan)
             prompts = parse_research_prompts(stage3_plan)
             log.warning("[PIPELINE %s] Stage 3 plan complete: %s prompts", run_id, len(prompts))
-            update_run(run_id, stage3_plan_output=stage3_plan)
             _event(
                 run_id,
                 {

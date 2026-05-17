@@ -61,7 +61,7 @@
 
           <div id="manualModePanel" class="manual-mode-panel" hidden>
             <p class="manual-mode-instructions">
-              Upload .md, .txt, or JSON files for stages you already have. The pipeline skips those stages and resumes from the next one. Stage 5 always runs fresh with live market data.
+              Upload .md, .txt, or JSON files for stages you already have. A Stage 3 plan can be uploaded by itself; the pipeline will reuse it and rerun only the research queries. Stage 5 always runs fresh with live market data.
             </p>
             <div class="upload-grid">
               <div class="upload-slot">
@@ -80,7 +80,7 @@
                 <span class="upload-status" id="uploadStatus3Plan"></span>
               </div>
               <div class="upload-slot">
-                <label for="uploadStage3Research">Stage 3 Research - Findings</label>
+                <label for="uploadStage3Research">Stage 3 Research - Findings (Optional)</label>
                 <input type="file" id="uploadStage3Research" data-upload-stage="3-research" accept=".md,.txt,.json" />
                 <span class="upload-status" id="uploadStatus3Research"></span>
               </div>
@@ -170,6 +170,6 @@
     </aside>
   </main>
 
-  <script src="/static/js/research.js?v=model-upgrade-copy-fix-20260507"></script>
+  <script src="/static/js/research.js?v=research-recovery-20260517"></script>
 </body>
 </html>

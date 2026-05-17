@@ -8,7 +8,14 @@ from flask_login import current_user, login_required
 
 from research.db import cleanup_zombie_runs, run_migrations
 from research import config
-from research.jobs import create_manual_run, create_run, find_existing_completed_run, get_run, update_run
+from research.jobs import (
+    create_manual_run,
+    create_run,
+    find_existing_completed_run,
+    get_latest_run,
+    get_run,
+    update_run,
+)
 from research.pipeline import start_pipeline, start_pipeline_resume
 
 research_bp = Blueprint("research", __name__, url_prefix="/research")
@@ -59,14 +66,18 @@ def run():
         run_id = create_manual_run(url, uploaded_stages)
         resume_from = _determine_resume_from_uploads(uploaded_stages)
         current_app.logger.warning("[PIPELINE] Created manual run %s, resuming from %s", run_id, resume_from)
-        start_pipeline_resume(run_id, resume_from)
+        if not start_pipeline_resume(run_id, resume_from):
+            update_run(run_id, status="error", error_message="Pipeline could not start", error_stage=resume_from)
+            return jsonify({"error": "Pipeline could not start"}), 409
         return jsonify(
             {"run_id": run_id, "duplicate": False, "manual": True, "resume_from": resume_from}
         ), 202
 
     run_id = create_run(url)
     current_app.logger.warning("[PIPELINE] Created run %s, dispatching background thread", run_id)
-    start_pipeline(run_id, url)
+    if not start_pipeline(run_id, url):
+        update_run(run_id, status="error", error_message="Pipeline could not start", error_stage="queued")
+        return jsonify({"error": "Pipeline could not start"}), 409
     current_app.logger.warning("[PIPELINE] Background thread for run %s dispatched", run_id)
     return jsonify({"run_id": run_id, "duplicate": False}), 202
 
@@ -96,7 +107,14 @@ def retry_run(run_id: int):
         completed_at=None,
         **_clear_outputs_from(resume_from),
     )
-    start_pipeline_resume(run_id, resume_from)
+    if not start_pipeline_resume(run_id, resume_from, force=True):
+        update_run(
+            run_id,
+            status="error",
+            error_message="Retry could not start because this run is already active",
+            error_stage=resume_from,
+        )
+        return jsonify({"error": "Retry could not start because this run is already active"}), 409
     return jsonify({"run_id": run_id, "resume_from": resume_from, "status": "running"}), 202
 
 
@@ -113,12 +131,25 @@ def run_state(run_id: int):
         return jsonify({"error": "transient", "message": "State temporarily unavailable"}), 503
 
 
+@research_bp.route("/runs/latest")
+@login_required
+def latest_run_state():
+    try:
+        run = get_latest_run()
+        if not run:
+            return jsonify({"error": "No runs found"}), 404
+        return jsonify(_serialize_run(run))
+    except Exception as exc:
+        current_app.logger.warning("Failed to fetch latest run: %s", exc)
+        return jsonify({"error": "transient", "message": "State temporarily unavailable"}), 503
+
+
 @research_bp.route("/stream/<int:run_id>")
 @login_required
 def stream(run_id: int):
     def generate():
         last_event_index = 0
-        max_iterations = 600
+        max_iterations = 240
         iteration = 0
         while iteration < max_iterations:
             iteration += 1
@@ -126,7 +157,7 @@ def stream(run_id: int):
                 run = get_run(run_id)
             except Exception:
                 yield ": keepalive\n\n"
-                time.sleep(2)
+                time.sleep(5)
                 continue
 
             if not run:
@@ -143,7 +174,7 @@ def stream(run_id: int):
                 return
 
             yield ": keepalive\n\n"
-            time.sleep(2)
+            time.sleep(5)
 
     response = Response(stream_with_context(generate()), mimetype="text/event-stream")
     response.headers["Cache-Control"] = "no-cache"
@@ -173,6 +204,7 @@ def _report_content(run: dict, filename: str):
         "stage1.md": run.get("stage1_output"),
         "stage2.md": run.get("stage2_output"),
         "stage3-plan.md": run.get("stage3_plan_output"),
+        "stage3-research.md": _format_stage3_research(run.get("stage3_research")) or None,
         "stage4.md": run.get("stage4_output"),
         "stage5.md": run.get("stage5_output"),
     }
@@ -250,7 +282,6 @@ def _clear_outputs_from(resume_from: str) -> dict:
             "portfolio_snapshot": None,
         },
         "stage3": {
-            "stage3_plan_output": None,
             "stage3_research": None,
             "stage4_output": None,
             "stage5_output": None,
@@ -277,8 +308,8 @@ def _validate_manual_payload(uploaded_stages: dict, youtube_url: str | None) -> 
         return "uploaded_stages must be an object"
     if not uploaded_stages and not youtube_url:
         return "Manual mode requires at least one uploaded stage or a YouTube URL"
-    if ("3-plan" in uploaded_stages) != ("3-research" in uploaded_stages):
-        return "Stage 3 requires both the research plan AND research findings, or neither"
+    if "3-research" in uploaded_stages and "3-plan" not in uploaded_stages:
+        return "Stage 3 research findings require the Stage 3 research plan upload too"
     allowed_keys = {"1", "2", "3-plan", "3-research", "4"}
     for stage_key, content in uploaded_stages.items():
         if stage_key not in allowed_keys:
@@ -295,6 +326,8 @@ def _determine_resume_from_uploads(uploaded_stages: dict) -> str:
         return "stage5"
     if "3-plan" in uploaded_stages and "3-research" in uploaded_stages:
         return "stage4"
+    if "3-plan" in uploaded_stages:
+        return "stage3"
     if "2" in uploaded_stages:
         return "stage3"
     if "1" in uploaded_stages:

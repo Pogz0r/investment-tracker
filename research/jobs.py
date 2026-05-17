@@ -78,6 +78,14 @@ def get_run(run_id: int):
     return dict(row) if row else None
 
 
+def get_latest_run():
+    with get_engine().connect() as conn:
+        row = conn.execute(
+            select(pipeline_runs).order_by(desc(pipeline_runs.c.started_at)).limit(1)
+        ).mappings().first()
+    return dict(row) if row else None
+
+
 def get_podcast_by_run(run_id: int):
     with get_engine().connect() as conn:
         row = conn.execute(

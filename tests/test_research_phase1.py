@@ -165,16 +165,47 @@ def test_manual_mode_with_stage4_upload_runs_only_stage5(research_app):
     assert "Personalized Portfolio Observations" in run["stage5_output"]
 
 
-def test_manual_mode_rejects_stage3_partial_upload(research_app):
+def test_manual_mode_with_stage3_plan_only_runs_research_onward(research_app):
+    from research.jobs import get_run
+
     client = research_app.test_client()
 
+    stage3_plan = """# RESEARCH PLAN
+
+<prompts_json>
+[
+  {
+    "id": "P0",
+    "title": "Uploaded crux",
+    "is_crux": true,
+    "prompt_text": "Find current evidence for the uploaded thesis.",
+    "output_format": "table",
+    "bayesian_update": "If supported -> up. If refuted -> down."
+  }
+]
+</prompts_json>
+"""
     response = client.post(
         "/research/run",
-        json={"manual": True, "uploaded_stages": {"3-plan": "fake plan"}},
+        json={
+            "manual": True,
+            "uploaded_stages": {
+                "1": "# INVESTMENT MEMO\n\nUploaded signal memo.",
+                "2": "# THEMATIC DEEP-DIVE\n\nUploaded thematic memo.",
+                "3-plan": stage3_plan,
+            },
+        },
     )
 
-    assert response.status_code == 400
-    assert "both" in response.get_json()["error"].lower()
+    assert response.status_code == 202
+    payload = response.get_json()
+    assert payload["resume_from"] == "stage3"
+    run = get_run(payload["run_id"])
+    assert run["status"] == "complete"
+    assert run["stage3_plan_output"] == stage3_plan
+    assert run["stage3_research"]
+    assert run["stage4_output"]
+    assert run["stage5_output"]
 
 
 def test_manual_mode_requires_at_least_one_upload_or_url(research_app):
@@ -211,6 +242,105 @@ def test_manual_mode_with_stage2_upload_resumes_from_stage3(research_app):
     assert run["stage3_plan_output"]
     assert run["stage4_output"]
     assert run["stage5_output"]
+
+
+def test_retry_stage3_preserves_existing_plan_and_runs_missing_research(research_app):
+    from research.jobs import create_run, get_run, update_run
+
+    client = research_app.test_client()
+    stage3_plan = """# RESEARCH PLAN
+
+<prompts_json>
+[
+  {
+    "id": "P0",
+    "title": "Preserved crux",
+    "is_crux": true,
+    "prompt_text": "Find current evidence for the preserved plan.",
+    "output_format": "table",
+    "bayesian_update": "If supported -> up. If refuted -> down."
+  }
+]
+</prompts_json>
+"""
+    run_id = create_run("https://www.youtube.com/watch?v=retry_stage3")
+    update_run(
+        run_id,
+        status="error",
+        current_stage="stage3",
+        stage1_output="stage 1 saved",
+        stage2_output="stage 2 saved",
+        stage3_plan_output=stage3_plan,
+        error_message="Pipeline interrupted by instance restart",
+        error_stage="stage3",
+    )
+
+    response = client.post(f"/research/run/{run_id}/retry")
+
+    assert response.status_code == 202
+    assert response.get_json()["resume_from"] == "stage3"
+    run = get_run(run_id)
+    assert run["status"] == "complete"
+    assert run["stage1_output"] == "stage 1 saved"
+    assert run["stage2_output"] == "stage 2 saved"
+    assert run["stage3_plan_output"] == stage3_plan
+    assert run["stage3_research"]
+    assert run["stage4_output"]
+    assert run["stage5_output"]
+
+
+def test_retry_clears_stale_active_lock_and_starts(research_app):
+    from research.jobs import create_run, get_run, mark_active, update_run
+
+    client = research_app.test_client()
+    run_id = create_run("https://www.youtube.com/watch?v=stale_retry_lock")
+    update_run(
+        run_id,
+        status="error",
+        current_stage="stage5",
+        stage1_output="stage 1 saved",
+        stage2_output="stage 2 saved",
+        stage3_plan_output="stage 3 plan saved",
+        stage3_research={"P0": {"result": "stage 3 research saved", "citations": []}},
+        stage4_output="stage 4 saved",
+        error_message="Pipeline interrupted by instance restart",
+        error_stage="stage5",
+    )
+    assert mark_active(run_id) is True
+
+    response = client.post(f"/research/run/{run_id}/retry")
+
+    assert response.status_code == 202
+    run = get_run(run_id)
+    assert run["status"] == "complete"
+    assert "Personalized Portfolio Observations" in run["stage5_output"]
+
+
+def test_latest_run_state_returns_most_recent_run(research_app):
+    client = research_app.test_client()
+
+    first = client.post("/research/run", json={"url": "https://youtu.be/latest01"}).get_json()["run_id"]
+    second = client.post("/research/run", json={"url": "https://youtu.be/latest02"}).get_json()["run_id"]
+    assert first != second
+
+    response = client.get("/research/runs/latest")
+
+    assert response.status_code == 200
+    assert response.get_json()["id"] == second
+
+
+def test_stage3_research_report_download(research_app):
+    client = research_app.test_client()
+    run_id = client.post("/research/run", json={"url": "https://youtu.be/stage3report"}).get_json()["run_id"]
+    _wait_for_complete(client, run_id)
+
+    response = client.get(f"/research/report/{run_id}/stage3-research.md")
+
+    assert response.status_code == 200
+    assert response.mimetype == "text/markdown"
+    text = response.get_data(as_text=True)
+    assert "STAGE 3 RESEARCH RESULTS" in text
+    assert "P0" in text
 
 
 def test_claude_thinking_uses_adaptive_output_config(monkeypatch):

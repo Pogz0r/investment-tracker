@@ -2,7 +2,7 @@
 # To force the correct gunicorn config, set the Start Command MANUALLY in:
 #   Render Dashboard -> Service -> Settings -> Start Command
 # Set it to:
-#   gunicorn --bind 0.0.0.0:$PORT --workers 2 --threads 8 --worker-class gthread --timeout 900 --graceful-timeout 30 --keep-alive 5 --log-level info app:app
+#   gunicorn --bind 0.0.0.0:$PORT --timeout 1200 --workers 1 --threads 8 --worker-class gthread --graceful-timeout 30 --keep-alive 5 --max-requests 50 --max-requests-jitter 10 --log-level info app:app
 
 databases:
   - name: bdc-portfolio-db
@@ -15,7 +15,7 @@ services:
     name: bdc-investment-tracker
     runtime: python
     buildCommand: pip install -r requirements.txt
-    startCommand: gunicorn --bind 0.0.0.0:$PORT --timeout 900 --workers 2 --threads 8 --worker-class gthread --graceful-timeout 30 --keep-alive 5 --log-level info app:app
+    startCommand: gunicorn --bind 0.0.0.0:$PORT --timeout 1200 --workers 1 --threads 8 --worker-class gthread --graceful-timeout 30 --keep-alive 5 --max-requests 50 --max-requests-jitter 10 --log-level info app:app
     healthCheckPath: /health
     envVars:
       - key: DATABASE_URL

@@ -28,7 +28,8 @@ let elapsedTimerInterval = null;
 let consecutiveRefreshFailures = 0;
 const uploadedStages = {};
 
-const POLL_INTERVAL_MS = 5000;
+const CURRENT_RUN_STORAGE_KEY = "bdcResearchCurrentRunId";
+const POLL_INTERVAL_MS = 30000;
 const MAX_CONSECUTIVE_REFRESH_FAILURES = 3;
 
 document.getElementById("researchForm").addEventListener("submit", async (event) => {
@@ -48,6 +49,30 @@ document.getElementById("youtubeUrl").addEventListener("input", updateRunManualB
 document.querySelectorAll("[data-upload-stage]").forEach((input) => {
   input.addEventListener("change", () => handleUpload(input.dataset.uploadStage, input));
 });
+restoreSavedRun();
+
+function setCurrentRunId(runId) {
+  currentRunId = runId ? Number(runId) : null;
+  try {
+    if (currentRunId) {
+      window.localStorage.setItem(CURRENT_RUN_STORAGE_KEY, String(currentRunId));
+    } else {
+      window.localStorage.removeItem(CURRENT_RUN_STORAGE_KEY);
+    }
+  } catch (error) {
+    console.warn("[RUN] Could not persist current run id:", error);
+  }
+}
+
+function getSavedRunId() {
+  try {
+    const saved = window.localStorage.getItem(CURRENT_RUN_STORAGE_KEY);
+    return saved ? Number(saved) : null;
+  } catch (error) {
+    console.warn("[RUN] Could not read saved run id:", error);
+    return null;
+  }
+}
 
 async function runPipeline() {
   console.log("[RUN] Run Pipeline submitted");
@@ -60,7 +85,7 @@ async function runPipeline() {
     clearInterval(elapsedTimerInterval);
     elapsedTimerInterval = null;
   }
-  currentRunId = null;
+  setCurrentRunId(null);
   runStartTime = null;
   stageStartTime = null;
   currentStage = null;
@@ -94,7 +119,7 @@ async function runPipeline() {
       throw new Error(payload.error || `Server error ${response.status}: ${responseText.slice(0, 200)}`);
     }
     console.log("[RUN] Got run_id:", payload.run_id, "duplicate:", Boolean(payload.duplicate));
-    currentRunId = payload.run_id;
+    setCurrentRunId(payload.run_id);
     if (payload.duplicate) {
       showError(`This video was already analyzed (run #${payload.run_id}). Showing existing results.`);
       await refreshRun();
@@ -197,8 +222,8 @@ function clearUploads() {
 async function runManualPipeline() {
   const hasStage3Plan = Object.prototype.hasOwnProperty.call(uploadedStages, "3-plan");
   const hasStage3Research = Object.prototype.hasOwnProperty.call(uploadedStages, "3-research");
-  if (hasStage3Plan !== hasStage3Research) {
-    showError("Stage 3 requires both the research plan and research findings. Upload both or neither.");
+  if (hasStage3Research && !hasStage3Plan) {
+    showError("Stage 3 research findings need the matching Stage 3 research plan. Upload the plan too, or upload the plan only and the pipeline will rerun the research queries.");
     return;
   }
 
@@ -211,7 +236,7 @@ async function runManualPipeline() {
     clearInterval(elapsedTimerInterval);
     elapsedTimerInterval = null;
   }
-  currentRunId = null;
+  setCurrentRunId(null);
   runStartTime = null;
   stageStartTime = null;
   currentStage = null;
@@ -248,7 +273,7 @@ async function runManualPipeline() {
       throw new Error(data.error || `Server error ${response.status}: ${responseText.slice(0, 200)}`);
     }
     console.log("[MANUAL RUN] Got run_id:", data.run_id, "starting from:", data.resume_from);
-    currentRunId = data.run_id;
+    setCurrentRunId(data.run_id);
     btn.textContent = "Running...";
     startElapsedTimer();
     setActiveStage(stageFromResume(data.resume_from));
@@ -277,6 +302,49 @@ function startPolling() {
   pollTimer = setInterval(() => {
     refreshRun();
   }, POLL_INTERVAL_MS);
+}
+
+async function restoreSavedRun() {
+  const savedRunId = getSavedRunId();
+  if (savedRunId) {
+    currentRunId = savedRunId;
+    const savedRun = await refreshRun();
+    if (savedRun) {
+      activateRestoredRun(savedRun);
+      return;
+    }
+  }
+
+  try {
+    const response = await fetch("/research/runs/latest", {
+      credentials: "same-origin",
+      cache: "no-store",
+    });
+    if (!response.ok) return;
+    const latestRun = await response.json();
+    if (!latestRun || !latestRun.id) return;
+    setCurrentRunId(latestRun.id);
+    applyRunState(latestRun);
+    activateRestoredRun(latestRun);
+  } catch (error) {
+    console.warn("[RUN] Could not restore latest run:", error);
+  }
+}
+
+function activateRestoredRun(run) {
+  if (!run) return;
+  if (run.status === "running" || run.status === "queued") {
+    resetLiveStatusPanel();
+    setRunning(true);
+    resetManualButton();
+    const stage = currentStageNumber(run.current_stage) || "transcript";
+    setActiveStage(stage);
+    connectStream(currentRunId);
+    startPolling();
+  }
+  if (run.status === "error") {
+    showRetryButton();
+  }
 }
 
 function stopPolling() {
@@ -475,9 +543,19 @@ function renderOutputs(run) {
       renderStageCard(stage, run[field]);
     }
   }
+  if (run.stage3_research) {
+    const stage3ResearchMarkdown = formatStage3ResearchMarkdown(run.stage3_research);
+    if (stage3ResearchMarkdown && stageOutputs["3-research"] !== stage3ResearchMarkdown) {
+      stageOutputs["3-research"] = stage3ResearchMarkdown;
+      renderStageCard("3-research", stage3ResearchMarkdown, {
+        title: "Stage 3 - Research Findings",
+        downloadName: "stage3-research.md",
+      });
+    }
+  }
 }
 
-function renderStageCard(stage, markdown) {
+function renderStageCard(stage, markdown, options = {}) {
   const stack = document.getElementById("stageOutputs");
   const empty = stack.querySelector(".empty-research-state");
   if (empty) empty.remove();
@@ -488,10 +566,11 @@ function renderStageCard(stage, markdown) {
     card.className = "stage-report";
     stack.appendChild(card);
   }
-  const downloadName = stage === 3 ? "stage3-plan.md" : `stage${stage}.md`;
+  const downloadName = options.downloadName || (stage === 3 ? "stage3-plan.md" : `stage${stage}.md`);
+  const title = options.title || `Stage ${stage} - ${STAGE_LABELS[stage]}`;
   card.innerHTML = `
     <header class="stage-report-header">
-      <h2>Stage ${stage} - ${STAGE_LABELS[stage]}</h2>
+      <h2>${title}</h2>
       <div class="stage-report-actions">
         <button type="button" class="copy-btn" data-copy-stage="${stage}">Copy</button>
         <a href="/research/report/${currentRunId}/${downloadName}" download>MD</a>
@@ -502,6 +581,31 @@ function renderStageCard(stage, markdown) {
   card.querySelector("[data-copy-stage]").addEventListener("click", () => {
     copyStageOutput(stage);
   });
+}
+
+function formatStage3ResearchMarkdown(research) {
+  if (!research || typeof research !== "object") return "";
+  const lines = ["# STAGE 3 RESEARCH RESULTS"];
+  Object.entries(research).forEach(([promptId, result]) => {
+    const item = result && typeof result === "object" ? result : { result: String(result) };
+    lines.push(`## ${promptId}: ${item.title || ""}`.trim());
+    if (item.result) lines.push(String(item.result));
+    if (item.error) lines.push(`Error: ${item.error}`);
+    const citations = item.citations || [];
+    if (citations.length) {
+      lines.push("### Citations");
+      citations.forEach((citation) => {
+        if (typeof citation === "string") {
+          lines.push(`- ${citation}`);
+        } else if (citation && typeof citation === "object") {
+          const url = citation.url || "";
+          const title = citation.title || url || "Citation";
+          lines.push(url ? `- [${title}](${url})` : `- ${title}`);
+        }
+      });
+    }
+  });
+  return lines.join("\n\n");
 }
 
 async function copyStageOutput(stage) {
@@ -660,6 +764,7 @@ function resetLiveStatusPanel() {
 function setLiveStatusComplete() {
   const panel = document.getElementById("live-status");
   if (!panel) return;
+  panel.hidden = false;
   panel.classList.remove("error");
   panel.classList.add("complete");
   const labelEl = panel.querySelector(".status-label");
@@ -676,6 +781,7 @@ function setLiveStatusComplete() {
 function setLiveStatusError() {
   const panel = document.getElementById("live-status");
   if (!panel) return;
+  panel.hidden = false;
   panel.classList.remove("complete");
   panel.classList.add("error");
   const labelEl = panel.querySelector(".status-label");
