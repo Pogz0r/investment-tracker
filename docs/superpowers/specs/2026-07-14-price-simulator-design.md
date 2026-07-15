@@ -45,14 +45,14 @@ Already-selected holdings are disabled in other row selectors. Changing a row se
 ### Adding, removing, and resetting
 
 - An `Add holding` control appears when fewer than ten holdings are selected and at least one unselected stock or cryptocurrency exists.
-- Adding creates a row for the next available unselected holding and persists the ordered selection.
+- Adding creates a row for the first available unselected holding in the deterministic portfolio-value ordering defined below and persists the ordered selection.
 - Removing a row persists the remaining ordered selection.
 - A small count/status label reports `N / 10 selected` plus `Saving...`, `Saved`, or an error state.
 - `Reset prices` returns every slider to 0% without changing or resaving the selected holdings.
 
 ### Responsive behavior
 
-Desktop uses a single compact row. At narrower widths, the holding control stays on the first line while the slider and price readout wrap into clearly labeled regions. Touch targets remain at least 44 CSS pixels where practical, and all functionality remains available by keyboard.
+Desktop uses a single compact row. At narrower widths, the holding control stays on the first line while the slider and price readout wrap into clearly labeled regions. The selector, add, remove, and reset controls have a minimum 44-by-44 CSS pixel interactive area, and all functionality remains available by keyboard.
 
 ## Persistence Architecture
 
@@ -75,7 +75,9 @@ A separate table avoids altering the existing user table and allows `db.create_a
 
 The backend resolves saved keys against holdings owned by the requesting user. Missing or deleted holdings are omitted. The effective list preserves saved order, contains no duplicates, and never exceeds ten items.
 
-If a user has no settings row, the effective default is the ten highest-value stock/crypto holdings in descending current market value. Merely viewing this default does not create a settings row. The first user edit persists the submitted ordered list.
+If a user has no settings row, the effective default is up to ten stock/crypto holdings ordered by descending current market value, then by canonical holding key ascending as the deterministic tie-breaker. Holdings with an unavailable or zero value sort after positive-value holdings and still use canonical key order. This same ordering supplies the next holding for `Add holding`. Merely viewing the default does not create a settings row. The first user edit persists the submitted ordered list.
+
+An existing settings row with an empty `holding_keys` list means the user explicitly selected no holdings; it does not fall back to the implicit default. Saved keys for deleted holdings are filtered when the payload is built but are not written back automatically. The next successful user edit persists the cleaned effective list plus that edit.
 
 ### API contract
 
@@ -105,7 +107,15 @@ Validation rules:
 - Every key must identify a stock or cryptocurrency currently owned by the signed-in user.
 - Keys owned by a different user or using an unsupported type are rejected.
 
-Malformed input returns HTTP 400. Unknown or unowned holdings return HTTP 400 without revealing whether another user owns the key. Authentication failures follow the application's existing login behavior.
+Every validation failure returns HTTP 400 with a stable JSON shape:
+
+```json
+{
+  "error": "Human-readable validation message"
+}
+```
+
+Unknown or unowned holdings return the same generic HTTP 400 error without revealing whether another user owns the key. The endpoint uses the application's existing `@login_required` behavior: an unauthenticated request redirects to `/login`. The frontend treats a redirected or non-JSON save response as an expired session, restores the last confirmed selection, and shows a sign-in-again message.
 
 ## Market-price Data
 
@@ -114,6 +124,8 @@ The portfolio payload adds normalized per-unit price fields for every stock and 
 - `current_price_usd`
 - `current_price_cad`
 - `current_price_php`
+
+Each field is a non-null JSON number denominated in the currency named by its suffix. An unavailable market price is represented by `0`, matching the existing payload convention. These fields follow this Flask application's existing floating-point price representation; calculations retain the available precision and round only when formatted for display. The unrelated SplitKin integer-cent convention does not apply to this repository.
 
 Existing `current_price` fields remain unchanged for compatibility with current holding tables. The simulator selects the normalized field matching the active dashboard currency. The simulated per-unit price is:
 
@@ -133,6 +145,7 @@ A small standalone JavaScript unit owns pure operations that can be tested witho
 - Select the correct per-unit price for the active currency.
 - Calculate simulated unit price, holding-value delta, portfolio total, and percentage change.
 - Enforce slider bounds when consuming adjustment values.
+- Coordinate confirmed, desired, and in-flight selection snapshots for serialized autosaving.
 
 It has no DOM, network, or storage dependencies.
 
@@ -149,7 +162,11 @@ The existing dashboard script owns rendering and event wiring:
 
 ### Save behavior
 
-Selection edits update the UI optimistically and enter a `Saving...` state. Only one save is allowed in flight; later edits are serialized so an older response cannot overwrite a newer selection. On success, the returned list becomes the saved baseline and the status changes to `Saved`. On failure, the selection returns to the last confirmed baseline and an inline error explains that the change could not be saved. The user's slider adjustments for unaffected rows remain intact.
+Selection edits update a desired selection optimistically and enter a `Saving...` state. The save coordinator tracks three states: the last server-confirmed selection, the latest desired selection, and the immutable snapshot currently in flight. Only one request is sent at a time. When an in-flight request succeeds, its returned list becomes confirmed; if the latest desired list differs, the coordinator immediately sends that latest list. Otherwise the state becomes `Saved`.
+
+When an in-flight request fails, the coordinator discards any later queued desired edits, restores both desired and rendered selection to the last confirmed list, clears the in-flight state, and shows an inline error. Discarding queued edits prevents a change made after the failing request from being replayed unexpectedly; the user may retry through a fresh edit.
+
+Changing a row to a different holding deletes the previous holding's adjustment and initializes the replacement at 0%. Removing a row deletes that holding's adjustment. Re-adding a previously removed holding always initializes it at 0%. Percentage adjustments for rows unaffected by a successful selection edit remain intact. A failed save rollback preserves adjustments only for holdings present in the restored confirmed selection; any optimistically added or swapped-in holding is removed with its adjustment.
 
 ## Error and Edge-case Handling
 
@@ -176,6 +193,9 @@ Add focused pytest coverage for:
 - Rejection of malformed bodies, non-string keys, duplicates, more than ten keys, unsupported key types, and holdings not owned by the user.
 - Isolation between two users.
 - Safe omission of a saved holding after that holding is deleted.
+- Distinction between no settings row (implicit deterministic default) and a saved empty list (explicitly no rows).
+- Deterministic ordering for equal, zero, and unavailable holding values.
+- Stable JSON validation error bodies and the existing unauthenticated redirect response.
 - Normalized USD, CAD, and PHP unit prices for both stock and cryptocurrency payload items.
 
 External market and exchange-rate calls are mocked so tests are deterministic.
@@ -190,10 +210,14 @@ Use Node's built-in test runner, avoiding a new package dependency, to cover:
 - Portfolio delta calculations with selected and unselected holdings.
 - Slider-bound clamping.
 - Missing-price behavior.
+- Save-coordinator success sequencing and latest-desired coalescing.
+- Save failure rollback and clearing of queued edits.
+- Adjustment removal on swap/remove and zero initialization on add/re-add.
+- Selection and adjustment preservation across currency refreshes.
 
 ### Integration and verification
 
-- Add template-level assertions for the selector, add/remove/reset controls, accessible labels, and -100%/+500% bounds.
+- Add template-level assertions for the selector, add/remove/reset controls, accessible labels, 44-by-44 interactive areas, and -100%/+500% bounds.
 - Manually verify desktop, narrow viewport, hover, keyboard focus, touch affordance, currency switching, and save-failure rollback.
 - Run the focused red test before implementation, then rerun it green.
 - Run the complete pytest suite.
