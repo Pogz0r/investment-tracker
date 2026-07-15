@@ -16,29 +16,45 @@ The Research page correctly clears its JavaScript timer interval when a pipeline
 
 ### Duration calculation
 
-Add a pure helper that accepts `started_at` and `completed_at` values and returns non-negative whole seconds, or `null` when either timestamp is missing or invalid. Fractional seconds are floored to match the existing live timer.
+Add a pure helper that accepts `started_at` and `completed_at` values and returns non-negative whole seconds, or `null` when either timestamp is missing, invalid, or earlier than the start. Fractional seconds are floored to match the existing live timer. A negative duration is invalid rather than clamped because clamping would invent a successful zero-second duration and suppress the live fallback.
+
+The helper lives in `static/js/research-timer.js` as a dependency-free UMD module: it assigns `window.ResearchTimer` in the browser and `module.exports` under Node. `templates/research.html` loads it immediately before `research.js`.
 
 ### Completion transition
 
-The completion handler accepts the completed run record. It performs these operations in order:
+One completion coordinator owns the terminal transition for the current run. It tracks the current run ID, whether completion has begun, the captured live fallback seconds, whether a completion value has rendered, and whether that rendered value came from persisted timestamps.
+
+Its `beginCompletion(runId)` operation performs these actions synchronously and idempotently:
 
 1. Stop polling.
 2. Stop the elapsed interval.
 3. Close and clear the event stream.
-4. Calculate the persisted duration from the run timestamps.
-5. Render the complete state with that fixed duration.
+4. Capture the last numeric live elapsed seconds maintained in memory by `updateElapsedDisplay`.
+
+Calling `beginCompletion` again for the same run does not recapture or restart anything. Every current-run ID change resets the coordinator before any running or completed state is applied, including switching directly between two completed runs.
+
+Its `finishCompletion(originatingRunId, runOrNull)` operation first rejects any call whose explicit originating ID no longer matches the coordinator's current run, then chooses and renders the duration:
+
+- A valid persisted duration from a matching run is authoritative.
+- If timestamps are unavailable, use the coordinator's captured numeric fallback.
+- If neither is available, use zero.
+- The first fallback may be replaced once by a later valid persisted duration from the same run.
+- Once a persisted duration has rendered, duplicate polling or SSE callbacks cannot overwrite it.
+- A record for a different run ID is ignored.
 
 The complete renderer no longer calls the live `updateElapsedDisplay()` function. It writes the fixed duration directly to `#total-elapsed`, `#current-stage-elapsed`, and the completion description. The stage elapsed text becomes `0s`, matching the existing completed-state meaning that no stage is currently active.
 
 ### State restoration
 
-`applyRunState` starts the live timer only when the run status is `queued` or `running`. For a completed run, it passes the run record directly to the completion handler. This prevents a restored run from briefly calculating elapsed time against the current date.
+`applyRunState` starts the live timer only when the run status is `queued` or `running`. For a completed run, it synchronously begins completion and then finishes with the run record. This prevents a restored run from briefly calculating elapsed time against the current date.
 
-The server-sent `pipeline_complete` handler first refreshes the run record, then completes using the refreshed record. If refresh unexpectedly returns no record, it stops the interval immediately and uses the currently displayed elapsed seconds as a fallback rather than allowing the timer to continue.
+`connectStream(runId)` passes its captured `runId` into every event callback. The `pipeline_complete` handler ignores the event unless that originating ID still equals `currentRunId`. This prevents a delayed event from an old stream from stopping a newly selected run.
+
+For a matching event, the handler calls `beginCompletion(originatingRunId)` before any `await`, then refreshes the run record. A `finally` path always calls `finishCompletion(originatingRunId, refreshedRunOrNull)`, so an exception or refresh failure still renders the captured fallback when that run remains current. Passing the originating ID separately ensures that even a null result cannot complete a different run selected while the refresh was pending. Existing refresh logging/error behavior remains unchanged. A concurrent polling response may finish completion first; coordinator idempotency ensures the later callback can only upgrade a fallback to the same run's valid persisted duration, never resume or inflate the timer.
 
 ### Missing timestamp fallback
 
-If a completed run lacks valid timestamps, completion still stops every timer and stream. The UI freezes the elapsed seconds already shown by the live timer. If no live elapsed value is available, it displays `00:00`. This keeps completion deterministic without inventing a duration.
+`updateElapsedDisplay` stores its calculated total seconds in a numeric `lastElapsedTotalSeconds` variable as well as writing the DOM. If a completed run lacks valid timestamps, completion freezes this in-memory value rather than parsing formatted UI text. If no live elapsed value is available, it displays `00:00`. This keeps completion deterministic without inventing a duration.
 
 ## Testing
 
@@ -50,12 +66,24 @@ Use Node's built-in test runner with a small dependency-free timer helper module
 - Missing and invalid timestamps.
 - Live elapsed calculation remaining based on the current clock.
 - Completion-state selection of persisted duration over the current clock.
+- Synchronous resource shutdown when completion begins.
+- Restored completed runs never entering live-timer state.
+- Missing-record refresh fallback to captured numeric elapsed time.
+- Duplicate completion signals remaining idempotent.
+- A later valid persisted duration upgrading a fallback once.
+- Mismatched or stale run records being ignored.
+- Switching directly between two completed run IDs resetting completion state.
+- A delayed SSE event from an old run leaving the current run untouched.
+- A rejected completion refresh still rendering the captured fallback through `finally`.
+- Switching runs while completion refresh is pending, followed by either a null result or rejection, leaving the new run untouched.
 
-Add source-level regression assertions confirming that:
+Add focused integration assertions confirming that:
 
 - Completed runs do not start the live interval in `applyRunState`.
-- The interval is stopped before complete-state rendering.
-- Both completion entry points pass a run record to the completion handler.
+- The SSE event path begins completion before awaiting refresh.
+- Restored completion and SSE completion use the same coordinator.
+
+Coordinator tests use injected stop and render callbacks, making shutdown order and observable rendered duration testable without a browser DOM. Minimal source-level assertions cover only the two existing `research.js` integration call sites; timer calculation and race behavior are verified through executable helper tests.
 
 Run the focused red test before implementation, then run it green, followed by the full pytest suite, JavaScript tests, JavaScript syntax checks, and Python compile checks.
 
