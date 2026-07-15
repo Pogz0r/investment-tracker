@@ -207,7 +207,10 @@
         <span class="price-simulator-caret" aria-hidden="true">v</span>
       </button>
       <div class="price-simulator-body" id="priceSimulatorBody" hidden>
-        <p class="simulator-help">Adjust the top 10 holdings to see how percentage moves would affect total portfolio value. Cash remains unchanged.</p>
+        <div class="simulator-intro">
+          <p class="simulator-help">Model price moves for up to 10 holdings. Cash remains unchanged.</p>
+          <span class="simulator-save-status" id="simulatorSaveStatus" aria-live="polite">0 / 10 selected</span>
+        </div>
         <div class="simulator-summary">
           <div>
             <span class="simulator-label">Simulated Portfolio</span>
@@ -220,7 +223,8 @@
         </div>
         <div class="simulator-rows" id="simulatorRows"></div>
         <div class="simulator-actions">
-          <button class="btn btn-outline btn-simulator-reset" id="resetSimulator" type="button">Reset</button>
+          <button class="btn btn-outline btn-simulator-add" id="addSimulatorHolding" type="button">+ Add holding</button>
+          <button class="btn btn-outline btn-simulator-reset" id="resetSimulator" type="button">Reset prices</button>
         </div>
       </div>
     </section>
@@ -512,6 +516,7 @@
     </div>
   </div>
 
+  <script src="/static/js/price-simulator.js"></script>
   <script src="/static/js/app.js"></script>
 </body>
 </html>

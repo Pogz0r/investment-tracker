@@ -95,6 +95,12 @@ class Crypto(db.Model):
     avg_purchase_price = db.Column(db.Float, nullable=False)
 
 
+class PriceSimulatorSettings(db.Model):
+    id = db.Column(db.Integer, primary_key=True)
+    user_id = db.Column(db.Integer, db.ForeignKey("user.id"), nullable=False, unique=True)
+    holding_keys = db.Column(db.JSON, nullable=False, default=list)
+
+
 class WatchlistItem(db.Model):
     id = db.Column(db.Integer, primary_key=True)
     user_id = db.Column(db.Integer, db.ForeignKey("user.id"), nullable=False)
@@ -364,6 +370,35 @@ def _authorized_export_request():
         abort(401)
 
 
+def _holding_key(item: dict) -> str:
+    if item.get("type") == "crypto":
+        return f"crypto:{item['coin_id']}"
+    return f"stock:{item['ticker']}"
+
+
+def _effective_price_simulator_keys(uid: int, stocks_out: list, crypto_out: list) -> list[str]:
+    holdings = [*stocks_out, *crypto_out]
+    available = {_holding_key(item): item for item in holdings}
+    settings = PriceSimulatorSettings.query.filter_by(user_id=uid).first()
+
+    if settings is not None:
+        seen = set()
+        effective = []
+        for key in settings.holding_keys or []:
+            if key in available and key not in seen:
+                effective.append(key)
+                seen.add(key)
+            if len(effective) == 10:
+                break
+        return effective
+
+    ranked = sorted(
+        available.items(),
+        key=lambda pair: (-(pair[1].get("current_value_usd") or 0), pair[0]),
+    )
+    return [key for key, _ in ranked[:10]]
+
+
 def _build_portfolio_payload(uid: int, persist_history: bool = True):
     stocks = Stock.query.filter_by(user_id=uid).all()
     cryptos = Crypto.query.filter_by(user_id=uid).all()
@@ -406,6 +441,9 @@ def _build_portfolio_payload(uid: int, persist_history: bool = True):
             "avg_purchase_price": s.avg_purchase_price,
             "purchase_currency": currency,
             "current_price": cp_cad if currency == "CAD" else cp_usd,
+            "current_price_usd": cp_usd,
+            "current_price_cad": cp_cad,
+            "current_price_php": cp_usd * usd_to_php,
             "current_value_usd": cv_usd,
             "current_value_cad": cv_cad,
             "profit_loss_usd": pl_usd,
@@ -427,6 +465,9 @@ def _build_portfolio_payload(uid: int, persist_history: bool = True):
             "amount": c.amount,
             "avg_purchase_price": c.avg_purchase_price,
             "current_price": cp,
+            "current_price_usd": cp,
+            "current_price_cad": cp * usd_to_cad,
+            "current_price_php": cp * usd_to_php,
             "current_value_usd": cv,
             "current_value_cad": cv * usd_to_cad,
             "profit_loss_usd": pl,
@@ -488,6 +529,7 @@ def _build_portfolio_payload(uid: int, persist_history: bool = True):
             "target": goal.target if goal else 0,
             "currency": goal.currency if goal else "USD",
         },
+        "price_simulator_holding_keys": _effective_price_simulator_keys(uid, stocks_out, crypto_out),
         "portfolio_history": [
             {"timestamp": h.timestamp.isoformat(), "value_usd": h.value_usd, "value_cad": h.value_cad}
             for h in history
@@ -506,6 +548,46 @@ def index():
 @login_required
 def get_portfolio():
     return jsonify(_build_portfolio_payload(current_user.id, persist_history=True))
+
+
+@app.route("/api/price-simulator/holdings", methods=["PUT"])
+@login_required
+def update_price_simulator_holdings():
+    body = request.get_json(silent=True)
+    if not isinstance(body, dict) or "holding_keys" not in body:
+        return jsonify({"error": "holding_keys is required"}), 400
+
+    holding_keys = body["holding_keys"]
+    if not isinstance(holding_keys, list):
+        return jsonify({"error": "holding_keys must be an array"}), 400
+    if len(holding_keys) > 10:
+        return jsonify({"error": "Choose no more than 10 holdings"}), 400
+    if any(not isinstance(key, str) for key in holding_keys):
+        return jsonify({"error": "Every holding key must be a string"}), 400
+    if len(set(holding_keys)) != len(holding_keys):
+        return jsonify({"error": "Holdings must be unique"}), 400
+    if any(
+        not (key.startswith("stock:") or key.startswith("crypto:"))
+        or not key.split(":", 1)[1]
+        for key in holding_keys
+    ):
+        return jsonify({"error": "One or more holdings are unavailable"}), 400
+
+    owned_keys = {
+        *(f"stock:{stock.ticker}" for stock in Stock.query.filter_by(user_id=current_user.id).all()),
+        *(f"crypto:{crypto.coin_id}" for crypto in Crypto.query.filter_by(user_id=current_user.id).all()),
+    }
+    if any(key not in owned_keys for key in holding_keys):
+        return jsonify({"error": "One or more holdings are unavailable"}), 400
+
+    settings = PriceSimulatorSettings.query.filter_by(user_id=current_user.id).first()
+    if settings is None:
+        settings = PriceSimulatorSettings(user_id=current_user.id, holding_keys=list(holding_keys))
+        db.session.add(settings)
+    else:
+        settings.holding_keys = list(holding_keys)
+    db.session.commit()
+    return jsonify({"holding_keys": list(holding_keys)})
 
 
 @app.route("/api/portfolio/export")
