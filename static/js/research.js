@@ -25,12 +25,21 @@ let runStartTime = null;
 let stageStartTime = null;
 let currentStage = null;
 let elapsedTimerInterval = null;
+let lastElapsedTotalSeconds = 0;
 let consecutiveRefreshFailures = 0;
 const uploadedStages = {};
 
 const CURRENT_RUN_STORAGE_KEY = "bdcResearchCurrentRunId";
 const POLL_INTERVAL_MS = 30000;
 const MAX_CONSECUTIVE_REFRESH_FAILURES = 3;
+const researchTimer = window.ResearchTimer;
+const completionCoordinator = researchTimer.createCompletionCoordinator({
+  stopPolling,
+  stopElapsedTimer,
+  closeEventSource,
+  getFallbackSeconds: () => lastElapsedTotalSeconds,
+  renderComplete: setLiveStatusComplete,
+});
 
 document.getElementById("researchForm").addEventListener("submit", async (event) => {
   event.preventDefault();
@@ -52,7 +61,12 @@ document.querySelectorAll("[data-upload-stage]").forEach((input) => {
 restoreSavedRun();
 
 function setCurrentRunId(runId) {
-  currentRunId = runId ? Number(runId) : null;
+  const nextRunId = runId ? Number(runId) : null;
+  if (nextRunId !== currentRunId) {
+    completionCoordinator.reset(nextRunId);
+    lastElapsedTotalSeconds = 0;
+  }
+  currentRunId = nextRunId;
   try {
     if (currentRunId) {
       window.localStorage.setItem(CURRENT_RUN_STORAGE_KEY, String(currentRunId));
@@ -290,7 +304,7 @@ async function runManualPipeline() {
 function connectStream(runId) {
   if (eventSource) eventSource.close();
   eventSource = new EventSource(`/research/stream/${runId}`);
-  eventSource.onmessage = async (event) => handleEvent(JSON.parse(event.data));
+  eventSource.onmessage = async (event) => handleEvent(JSON.parse(event.data), runId);
   eventSource.onerror = () => {
     if (eventSource) eventSource.close();
     setTimeout(() => currentRunId && connectStream(currentRunId), 1800);
@@ -307,7 +321,7 @@ function startPolling() {
 async function restoreSavedRun() {
   const savedRunId = getSavedRunId();
   if (savedRunId) {
-    currentRunId = savedRunId;
+    setCurrentRunId(savedRunId);
     const savedRun = await refreshRun();
     if (savedRun) {
       activateRestoredRun(savedRun);
@@ -354,6 +368,13 @@ function stopPolling() {
   }
 }
 
+function closeEventSource() {
+  if (eventSource) {
+    eventSource.close();
+    eventSource = null;
+  }
+}
+
 function formatElapsed(seconds) {
   if (seconds < 60) return `${seconds}s`;
   const minutes = Math.floor(seconds / 60);
@@ -385,7 +406,8 @@ function stopElapsedTimer() {
 
 function updateElapsedDisplay() {
   if (!runStartTime) return;
-  const totalSeconds = Math.max(0, Math.floor((Date.now() - runStartTime) / 1000));
+  const totalSeconds = researchTimer.calculateLiveElapsedSeconds(runStartTime);
+  lastElapsedTotalSeconds = totalSeconds;
   const stageSeconds = stageStartTime ? Math.max(0, Math.floor((Date.now() - stageStartTime) / 1000)) : 0;
   const totalEl = document.getElementById("total-elapsed");
   const stageEl = document.getElementById("current-stage-elapsed");
@@ -409,7 +431,19 @@ function setActiveStage(stage) {
   updateElapsedDisplay();
 }
 
-async function handleEvent(event) {
+async function handleEvent(event, sourceRunId) {
+  if (event.type === "pipeline_complete") {
+    if (Number(sourceRunId) !== currentRunId) return;
+    completionCoordinator.beginCompletion(sourceRunId);
+    let refreshedRun = null;
+    try {
+      refreshedRun = await refreshRun();
+    } finally {
+      completionCoordinator.finishCompletion(sourceRunId, refreshedRun);
+    }
+    return;
+  }
+
   if (!runStartTime) startElapsedTimer();
   if (event.type === "stage_start") setActiveStage(event.stage);
   if (event.type === "stage_skipped") markStageDone(event.stage);
@@ -419,10 +453,6 @@ async function handleEvent(event) {
   }
   if (event.type === "research_prompts_dispatched") showStage3Panel(event);
   if (event.type === "research_prompt_done") updatePromptStatus(event);
-  if (event.type === "pipeline_complete") {
-    await refreshRun();
-    onComplete();
-  }
   if (event.type === "error") {
     showError(event.message);
     setLiveStatusError();
@@ -463,11 +493,13 @@ async function refreshRun() {
 }
 
 function applyRunState(run) {
-  if (!runStartTime && run.started_at) startElapsedTimer(run.started_at);
+  if (researchTimer.shouldRunLiveTimer(run.status) && !runStartTime && run.started_at) {
+    startElapsedTimer(run.started_at);
+  }
   reconcileRunState(run);
   renderOutputs(run);
   renderReferenceRail(run);
-  if (run.status === "complete") onComplete();
+  if (run.status === "complete") onComplete(run);
   if (run.status === "error") {
     showError(run.error_message || "Pipeline failed.");
     setLiveStatusError();
@@ -725,17 +757,13 @@ function markStageDone(stage) {
   el.classList.add("done");
 }
 
-function onComplete() {
+function onComplete(run) {
+  const runId = run?.id ?? currentRunId;
+  if (!completionCoordinator.beginCompletion(runId)) return;
+  completionCoordinator.finishCompletion(runId, run || null);
   setRunning(false);
   resetManualButton();
-  stopPolling();
-  setLiveStatusComplete();
-  stopElapsedTimer();
   hideRetryButton();
-  if (eventSource) {
-    eventSource.close();
-    eventSource = null;
-  }
   const actions = document.getElementById("finalActions");
   actions.hidden = false;
   document.getElementById("downloadFull").href = `/research/report/${currentRunId}/full.md`;
@@ -761,7 +789,7 @@ function resetLiveStatusPanel() {
   hideRetryButton();
 }
 
-function setLiveStatusComplete() {
+function setLiveStatusComplete(totalSeconds) {
   const panel = document.getElementById("live-status");
   if (!panel) return;
   panel.hidden = false;
@@ -769,13 +797,16 @@ function setLiveStatusComplete() {
   panel.classList.add("complete");
   const labelEl = panel.querySelector(".status-label");
   if (labelEl) labelEl.textContent = "COMPLETE";
-  const totalSeconds = runStartTime ? Math.max(0, Math.floor((Date.now() - runStartTime) / 1000)) : 0;
+  const frozenSeconds = Number.isFinite(totalSeconds) ? Math.max(0, Math.floor(totalSeconds)) : 0;
   const descEl = document.getElementById("current-stage-description");
   const modelEl = document.getElementById("current-stage-model");
-  if (descEl) descEl.textContent = `Pipeline finished in ${formatTimer(totalSeconds)}`;
+  const totalEl = document.getElementById("total-elapsed");
+  const stageEl = document.getElementById("current-stage-elapsed");
+  if (descEl) descEl.textContent = `Pipeline finished in ${formatTimer(frozenSeconds)}`;
   if (modelEl) modelEl.textContent = "All stages complete";
+  if (totalEl) totalEl.textContent = formatTimer(frozenSeconds);
+  if (stageEl) stageEl.textContent = "0s";
   hideRetryButton();
-  updateElapsedDisplay();
 }
 
 function setLiveStatusError() {
