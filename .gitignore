@@ -38,6 +38,7 @@ env/
 *.swo
 .DS_Store
 Thumbs.db
+.superpowers/
 
 # pytest / coverage
 .pytest_cache/

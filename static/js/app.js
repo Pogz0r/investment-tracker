@@ -19,6 +19,11 @@ let currencyMode = localStorage.getItem("currencyMode") || "USD";
 let historyRange = localStorage.getItem("historyRange") || "7d";
 let allocationView = localStorage.getItem("allocationView") || "pie";
 let simulatorAdjustments = {};
+let simulatorSelectionKeys = null;
+let simulatorSaveCoordinator = null;
+let simulatorSaveError = "";
+
+const simulatorCore = window.PriceSimulator;
 
 // ── helpers ────────────────────────────────────────────────────────────────
 
@@ -29,6 +34,15 @@ const fmtUsd = (n) => "$" + fmt(n);
 const fmtCad = (n) => "CA$" + fmt(n);
 const fmtPhp = (n) => "\u20b1" + fmt(n);
 const fmtPct = (n) => (n >= 0 ? "+" : "") + fmt(n, 2) + "%";
+
+function escapeHtml(value) {
+  return String(value)
+    .replaceAll("&", "&amp;")
+    .replaceAll("<", "&lt;")
+    .replaceAll(">", "&gt;")
+    .replaceAll('"', "&quot;")
+    .replaceAll("'", "&#039;");
+}
 
 function plClass(n) {
   if (n > 0) return "positive";
@@ -254,8 +268,32 @@ document.getElementById("simulatorRows")?.addEventListener("input", (e) => {
   updateSimulatorDisplay();
 });
 
+document.getElementById("simulatorRows")?.addEventListener("change", (e) => {
+  const select = e.target.closest(".simulator-holding-select");
+  if (!select || !simulatorSelectionKeys) return;
+  const row = select.closest(".simulator-row");
+  const index = simulatorSelectionKeys.indexOf(row.dataset.key);
+  if (index < 0 || simulatorSelectionKeys.includes(select.value)) return;
+  const nextKeys = [...simulatorSelectionKeys];
+  nextKeys[index] = select.value;
+  applySimulatorSelection(nextKeys);
+});
+
+document.getElementById("simulatorRows")?.addEventListener("click", (e) => {
+  const removeButton = e.target.closest(".simulator-remove");
+  if (!removeButton || !simulatorSelectionKeys) return;
+  applySimulatorSelection(simulatorSelectionKeys.filter((key) => key !== removeButton.dataset.key));
+});
+
+document.getElementById("addSimulatorHolding")?.addEventListener("click", () => {
+  if (!lastData || !simulatorSelectionKeys || simulatorSelectionKeys.length >= 10) return;
+  const nextHolding = getAllSimulatorHoldings(lastData)
+    .find((holding) => !simulatorSelectionKeys.includes(holding.key));
+  if (nextHolding) applySimulatorSelection([...simulatorSelectionKeys, nextHolding.key]);
+});
+
 document.getElementById("resetSimulator")?.addEventListener("click", () => {
-  simulatorAdjustments = {};
+  simulatorAdjustments = Object.fromEntries((simulatorSelectionKeys || []).map((key) => [key, 0]));
   if (lastData) renderPriceSimulator(lastData);
 });
 
@@ -455,47 +493,138 @@ function getSimulatorBaseTotal(data) {
   return data.total_usd || 0;
 }
 
-function getSimulatorHoldings(data) {
+function getAllSimulatorHoldings(data) {
   return [...(data?.stocks || []), ...(data?.crypto || [])]
     .map((item) => ({
+      ...item,
       key: getHoldingKey(item),
       label: getHoldingLabel(item),
+      assetType: item.coin_id ? "Crypto" : "Stock",
       value: getCurrencyValue(item),
+      current_value_php: (item.current_value_usd || 0) * (data?.usd_to_php || 0),
     }))
-    .filter((item) => item.value > 0)
-    .sort((a, b) => b.value - a.value)
-    .slice(0, 10);
+    .sort((a, b) => (b.current_value_usd || 0) - (a.current_value_usd || 0) || a.key.localeCompare(b.key));
+}
+
+function getSimulatorHoldings(data) {
+  return simulatorCore.resolveSimulatorHoldings(
+    getAllSimulatorHoldings(data),
+    simulatorSelectionKeys || data?.price_simulator_holding_keys || [],
+  );
+}
+
+function setSimulatorSaveStatus(status, message = "") {
+  const statusEl = document.getElementById("simulatorSaveStatus");
+  if (!statusEl) return;
+  const count = simulatorSelectionKeys?.length || 0;
+  const label = status === "saving" ? "Saving…" : status === "error" ? (message || "Save failed — retry") : "Saved";
+  statusEl.textContent = `${count} / 10 selected · ${label}`;
+  statusEl.className = `simulator-save-status is-${status}`;
+}
+
+async function saveSimulatorSelection(holdingKeys) {
+  const response = await fetch("/api/price-simulator/holdings", {
+    method: "PUT",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ holding_keys: holdingKeys }),
+  });
+  if (response.redirected || !response.headers.get("content-type")?.includes("application/json")) {
+    throw new Error("Session expired — sign in again");
+  }
+  const payload = await response.json();
+  if (!response.ok) throw new Error(payload.error || "Could not save selection");
+  return payload;
+}
+
+function initializeSimulatorSelection(data) {
+  if (simulatorSaveCoordinator) return;
+  simulatorSelectionKeys = [...(data.price_simulator_holding_keys || [])];
+  simulatorAdjustments = simulatorCore.reconcileAdjustments({}, [], simulatorSelectionKeys);
+  simulatorSaveCoordinator = simulatorCore.createSelectionSaveCoordinator({
+    initialKeys: simulatorSelectionKeys,
+    save: saveSimulatorSelection,
+    onError: (error) => { simulatorSaveError = error.message; },
+    onState: (state) => {
+      const previousKeys = simulatorSelectionKeys || [];
+      simulatorSelectionKeys = [...state.desired];
+      simulatorAdjustments = simulatorCore.reconcileAdjustments(
+        simulatorAdjustments,
+        previousKeys,
+        simulatorSelectionKeys,
+      );
+      if (state.status === "saving") simulatorSaveError = "";
+      setSimulatorSaveStatus(state.status, simulatorSaveError);
+      if (lastData && previousKeys.join("\0") !== simulatorSelectionKeys.join("\0")) {
+        renderPriceSimulator(lastData);
+      }
+    },
+  });
+  setSimulatorSaveStatus("saved");
+}
+
+function applySimulatorSelection(nextKeys) {
+  if (!simulatorSaveCoordinator || nextKeys.length > 10) return;
+  const previousKeys = simulatorSelectionKeys || [];
+  simulatorAdjustments = simulatorCore.reconcileAdjustments(
+    simulatorAdjustments,
+    previousKeys,
+    nextKeys,
+  );
+  simulatorSelectionKeys = [...nextKeys];
+  renderPriceSimulator(lastData);
+  simulatorSaveCoordinator.setDesired(nextKeys);
 }
 
 function renderPriceSimulator(data) {
   const rowsEl = document.getElementById("simulatorRows");
   if (!rowsEl) return;
 
+  initializeSimulatorSelection(data);
   const holdings = getSimulatorHoldings(data);
   if (!holdings.length) {
-    rowsEl.innerHTML = '<div class="simulator-empty">Add holdings to enable the simulator.</div>';
+    const hasHoldings = getAllSimulatorHoldings(data).length > 0;
+    rowsEl.innerHTML = `<div class="simulator-empty">${hasHoldings ? "Choose a holding to start simulating prices." : "Add holdings to enable the simulator."}</div>`;
     updateSimulatorDisplay();
-    return;
+  } else {
+    const fmtValue = getCurrencyFormatter();
+    const allHoldings = getAllSimulatorHoldings(data);
+    const selected = new Set(simulatorSelectionKeys);
+    rowsEl.innerHTML = holdings.map((holding) => {
+      const pct = simulatorCore.clampAdjustment(simulatorAdjustments[holding.key] ?? 0);
+      const currentPrice = simulatorCore.getCurrencyPrice(holding, currencyMode);
+      const simulatedPrice = currentPrice * (1 + pct / 100);
+      const safeKey = escapeHtml(holding.key);
+      const options = allHoldings.map((option) => {
+        const disabled = selected.has(option.key) && option.key !== holding.key;
+        return `<option value="${escapeHtml(option.key)}" ${option.key === holding.key ? "selected" : ""} ${disabled ? "disabled" : ""}>${escapeHtml(option.label)} · ${option.assetType}</option>`;
+      }).join("");
+      return `
+        <div class="simulator-row" data-key="${safeKey}" data-base-value="${holding.value}" data-current-price="${currentPrice}">
+          <div class="simulator-holding-control">
+            <select class="simulator-holding-select" aria-label="Choose holding for this simulator row">${options}</select>
+            <span class="simulator-holding-caret" aria-hidden="true">⌄</span>
+          </div>
+          <div class="simulator-slider-wrap">
+            <input class="simulator-slider" type="range" min="-100" max="500" step="1" value="${pct}" data-key="${safeKey}" aria-label="${escapeHtml(holding.label)} price change">
+            <strong class="simulator-row-pct ${plClass(pct)}">${fmtPct(pct)}</strong>
+          </div>
+          <div class="simulator-price-flow" aria-live="polite">
+            <span class="simulator-current-price">${currentPrice > 0 ? fmtValue(currentPrice) : "—"}</span>
+            <span class="simulator-price-arrow" aria-hidden="true">→</span>
+            <strong class="simulator-simulated-price">${currentPrice > 0 ? fmtValue(simulatedPrice) : "—"}</strong>
+          </div>
+          <button class="simulator-remove" type="button" data-key="${safeKey}" aria-label="Remove ${escapeHtml(holding.label)} from simulator">×</button>
+        </div>
+      `;
+    }).join("");
   }
 
-  const fmtValue = getCurrencyFormatter();
-  rowsEl.innerHTML = holdings.map((holding) => {
-    const pct = simulatorAdjustments[holding.key] ?? 0;
-    return `
-      <div class="simulator-row" data-key="${holding.key}" data-base-value="${holding.value}">
-        <div class="simulator-holding">
-          <span class="ticker-badge">${holding.label}</span>
-          <small>${fmtValue(holding.value)}</small>
-        </div>
-        <input class="simulator-slider" type="range" min="-100" max="200" step="1" value="${pct}" data-key="${holding.key}" aria-label="${holding.label} price change">
-        <div class="simulator-result">
-          <span class="simulator-row-value">${fmtValue(holding.value * (1 + pct / 100))}</span>
-          <strong class="simulator-row-pct ${plClass(pct)}">${fmtPct(pct)}</strong>
-        </div>
-      </div>
-    `;
-  }).join("");
-
+  const addButton = document.getElementById("addSimulatorHolding");
+  if (addButton) {
+    const hasAvailable = getAllSimulatorHoldings(data).some((holding) => !simulatorSelectionKeys.includes(holding.key));
+    addButton.hidden = simulatorSelectionKeys.length >= 10 || !hasAvailable;
+  }
+  setSimulatorSaveStatus(simulatorSaveCoordinator?.getState().status || "saved", simulatorSaveError);
   updateSimulatorDisplay();
 }
 
@@ -511,11 +640,13 @@ function updateSimulatorDisplay() {
     const baseValue = Number(row.dataset.baseValue || 0);
     const pct = simulatorAdjustments[key] ?? 0;
     const simulatedValue = baseValue * (1 + pct / 100);
+    const currentPrice = Number(row.dataset.currentPrice || 0);
+    const simulatedPrice = currentPrice * (1 + pct / 100);
     delta += simulatedValue - baseValue;
 
-    const valueEl = row.querySelector(".simulator-row-value");
+    const valueEl = row.querySelector(".simulator-simulated-price");
     const pctEl = row.querySelector(".simulator-row-pct");
-    if (valueEl) valueEl.textContent = fmtValue(simulatedValue);
+    if (valueEl) valueEl.textContent = currentPrice > 0 ? fmtValue(simulatedPrice) : "—";
     if (pctEl) {
       pctEl.textContent = fmtPct(pct);
       pctEl.className = `simulator-row-pct ${plClass(pct)}`;

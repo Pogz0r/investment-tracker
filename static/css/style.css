@@ -1399,11 +1399,32 @@ body.compact .user-avatar { width: 26px; height: 26px; }
   padding: 18px 20px 20px;
 }
 
+.simulator-intro {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  margin-bottom: 16px;
+}
+
 .simulator-help {
   color: var(--text-sub);
   font-size: .78rem;
-  margin-bottom: 16px;
+  margin: 0;
 }
+
+.simulator-save-status {
+  color: var(--text-muted);
+  flex: 0 0 auto;
+  font-family: var(--font-mono);
+  font-size: .62rem;
+  font-weight: 700;
+  letter-spacing: .06em;
+  text-transform: uppercase;
+}
+
+.simulator-save-status.is-saving { color: var(--amber-bright); }
+.simulator-save-status.is-error { color: var(--red); }
 
 .simulator-summary {
   display: grid;
@@ -1444,29 +1465,80 @@ body.compact .user-avatar { width: 26px; height: 26px; }
 
 .simulator-row {
   display: grid;
-  grid-template-columns: minmax(130px, 170px) minmax(180px, 1fr) minmax(150px, auto);
+  grid-template-columns: minmax(150px, 190px) minmax(220px, 1fr) minmax(190px, auto) 44px;
   align-items: center;
-  gap: 16px;
+  gap: 13px;
+  min-height: 58px;
+  padding: 6px 8px;
+  border: 1px solid rgba(255,255,255,.055);
+  border-radius: 9px;
+  background: rgba(255,255,255,.012);
 }
 
-.simulator-holding {
+.simulator-holding-control {
+  position: relative;
   display: flex;
   align-items: center;
-  gap: 10px;
   min-width: 0;
+  min-height: 44px;
+  border: 1px solid transparent;
+  border-radius: 8px;
+  background: transparent;
+  transition: border-color .16s, background .16s, box-shadow .16s;
 }
 
-.simulator-holding .ticker-badge {
-  max-width: 92px;
-  overflow: hidden;
-  text-overflow: ellipsis;
+.simulator-holding-control:hover,
+.simulator-holding-control:focus-within {
+  border-color: rgba(244, 161, 26, .48);
+  background: rgba(244, 161, 26, .055);
+  box-shadow: 0 0 0 3px rgba(244, 161, 26, .035);
 }
 
-.simulator-holding small {
-  color: var(--text-sub);
+.simulator-holding-select {
+  width: 100%;
+  min-height: 44px;
+  appearance: none;
+  -webkit-appearance: none;
+  border: 0;
+  border-radius: 7px;
+  outline: 0;
+  background: rgba(212, 137, 10, .07);
+  color: var(--amber-bright);
+  cursor: pointer;
+  padding: 8px 30px 8px 10px;
   font-family: var(--font-mono);
-  font-size: .72rem;
+  font-size: .74rem;
+  font-weight: 700;
+  text-overflow: ellipsis;
   white-space: nowrap;
+  overflow: hidden;
+}
+
+.simulator-holding-select option {
+  background: #111720;
+  color: var(--text);
+}
+
+.simulator-holding-caret {
+  position: absolute;
+  right: 10px;
+  top: 50%;
+  color: transparent;
+  pointer-events: none;
+  transform: translateY(-50%);
+  transition: color .16s;
+}
+
+.simulator-holding-control:hover .simulator-holding-caret,
+.simulator-holding-control:focus-within .simulator-holding-caret {
+  color: var(--amber-bright);
+}
+
+.simulator-slider-wrap {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  min-width: 0;
 }
 
 .simulator-slider {
@@ -1477,26 +1549,35 @@ body.compact .user-avatar { width: 26px; height: 26px; }
 .simulator-slider::-webkit-slider-runnable-track {
   height: 5px;
   border-radius: 99px;
-  background: linear-gradient(90deg, var(--red) 0%, rgba(255,255,255,.22) 34%, rgba(255,255,255,.22) 35%, var(--green) 100%);
+  background: linear-gradient(90deg, var(--red) 0%, rgba(255,255,255,.22) 16.5%, rgba(255,255,255,.22) 17%, var(--green) 100%);
 }
 
 .simulator-slider::-webkit-slider-thumb {
   margin-top: -5px;
 }
 
-.simulator-result {
+.simulator-price-flow {
   display: flex;
   align-items: baseline;
   justify-content: flex-end;
-  gap: 12px;
+  gap: 7px;
   min-width: 0;
+  font-family: var(--font-mono);
+  font-size: .74rem;
+  white-space: nowrap;
 }
 
-.simulator-row-value {
+.simulator-current-price {
   color: var(--text-sub);
-  font-family: var(--font-mono);
-  font-size: .78rem;
-  white-space: nowrap;
+}
+
+.simulator-price-arrow {
+  color: var(--text-muted);
+}
+
+.simulator-simulated-price {
+  color: var(--text);
+  font-weight: 700;
 }
 
 .simulator-row-pct {
@@ -1507,20 +1588,56 @@ body.compact .user-avatar { width: 26px; height: 26px; }
   text-align: right;
 }
 
+.simulator-remove {
+  width: 44px;
+  min-height: 44px;
+  border: 0;
+  border-radius: 7px;
+  background: transparent;
+  color: var(--text-muted);
+  cursor: pointer;
+  font-size: 1.05rem;
+  transition: color .16s, background .16s;
+}
+
+.simulator-remove:hover,
+.simulator-remove:focus-visible {
+  background: rgba(255, 76, 91, .08);
+  color: var(--red);
+  outline: none;
+}
+
 .simulator-actions {
   display: flex;
-  justify-content: center;
+  justify-content: space-between;
+  gap: 12px;
   margin-top: 16px;
 }
 
+.btn-simulator-add,
 .btn-simulator-reset {
-  min-width: 88px;
+  min-height: 44px;
+}
+
+.btn-simulator-add {
+  border-style: dashed;
+  color: var(--amber-bright);
+}
+
+.btn-simulator-add[hidden] {
+  display: none;
 }
 
 .simulator-empty {
   color: var(--text-muted);
   font-size: .82rem;
   padding: 16px 0;
+}
+
+@media (hover: none) {
+  .simulator-holding-caret {
+    color: rgba(244, 161, 26, .45);
+  }
 }
 
 .currency-opt {
@@ -1646,10 +1763,14 @@ body.compact .goal-meta { font-size: .75rem; }
     grid-template-columns: 1fr;
   }
   .simulator-row {
-    grid-template-columns: minmax(120px, 160px) minmax(160px, 1fr);
+    grid-template-columns: minmax(140px, 180px) minmax(180px, 1fr) 44px;
   }
-  .simulator-result {
+  .simulator-price-flow {
     grid-column: 2;
+  }
+  .simulator-remove {
+    grid-column: 3;
+    grid-row: 1;
   }
 }
 
@@ -1682,8 +1803,13 @@ body.compact .goal-meta { font-size: .75rem; }
   .simulator-summary {
     grid-template-columns: 1fr;
   }
+  .simulator-intro {
+    align-items: flex-start;
+    flex-direction: column;
+    gap: 7px;
+  }
   .simulator-row {
-    grid-template-columns: 1fr;
+    grid-template-columns: minmax(0, 1fr) 44px;
     gap: 8px;
     padding: 12px 0;
     border-bottom: 1px solid rgba(255,255,255,.055);
@@ -1691,9 +1817,19 @@ body.compact .goal-meta { font-size: .75rem; }
   .simulator-row:last-child {
     border-bottom: none;
   }
-  .simulator-result {
-    grid-column: auto;
-    justify-content: space-between;
+  .simulator-holding-control {
+    grid-column: 1;
+  }
+  .simulator-remove {
+    grid-column: 2;
+    grid-row: 1;
+  }
+  .simulator-slider-wrap,
+  .simulator-price-flow {
+    grid-column: 1 / -1;
+  }
+  .simulator-price-flow {
+    justify-content: flex-end;
   }
 }
 
